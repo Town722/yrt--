@@ -49,3 +49,47 @@ ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
 - 当前串口/dev/ttyUSB10。
 - 稳定路径/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0，后续程序优先使用该路径；若接入多个同描述符转接器，需要另行区分。
 - 转接器枚举成功，不等于LoRa射频收发已经通过；尚待串口权限、参数、工作模式及地面端COM号确认。
+
+## 停电进度存档（2026-11-05）
+
+用户因停电暂停测试。最新状态如下：
+
+### 已确认
+
+- 移动端Ubuntu可通过SSH登录，用户名ztl、主机名RK3588。
+- 本次成功登录地址192.168.137.246，接口eth0；重启后的DHCP租约可能变化。
+- LoRa已接USB；转接芯片枚举1a86:7523，当前/dev/ttyUSB10，固定路径/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0。
+- /dev/ttyUSB10权限crw-rw----、属组dialout；ztl已属于dialout，无需重复添加组或全局修改权限。
+- python3可运行，但import serial报ModuleNotFoundError，pyserial尚未确认安装。
+- EC20对应ttyUSB0–ttyUSB3，不作为LoRa串口使用。
+
+### 中断点与未完成内容
+
+- SSH出现“client_loop: send disconnect: Connection reset”，终端回到Windows PowerShell。
+- 随后的sudo apt-get命令误在Windows执行并报命令不存在，不能据此认为Ubuntu已更新软件源或安装串口库。
+- Windows地面端LoRa的COM号尚未收到。
+- 两台LoRa的实物工作模式、频点、空速及串口设置尚未核对；未执行射频收发、RSSI验证或9轮竞速。
+
+### 来电后恢复顺序
+
+1. 开发板恢复供电、网线和LoRa USB连接；先尝试上次地址：
+   ```powershell
+   ssh -o ConnectTimeout=5 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 ztl@192.168.137.246
+   ```
+   失败时重新检查有线口地址和DHCP租约，不将旧ARP静态记录当作在线证据。
+2. 看到ztl@RK3588提示符后，才在Ubuntu运行：
+   ```bash
+   ip -br addr
+   ls -l /dev/serial/by-id/
+   sudo apt-get update
+   sudo apt-get install -y python3-serial
+   python3 -c "import serial; print(serial.__version__)"
+   ```
+   如下载报错，先排查板端联网；无需在Windows执行sudo。
+3. 在单独的Windows PowerShell窗口记录地面端串口：
+   ```powershell
+   Get-CimInstance Win32_SerialPort | Format-Table DeviceID, Name -AutoSize
+   ```
+4. 核对实际模块参数和转接板模式开关，再开展短消息双向收发；随后验证RSSI格式。尚未编写或运行测试程序。
+
+设备与网桥资料分别见hardware-arrival-2026-11-05.md和wifi-bridge-first-test.md。登录密码未存入仓库。
