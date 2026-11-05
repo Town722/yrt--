@@ -40,3 +40,12 @@ ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
 - by-id中ttyUSB0、ttyUSB1、ttyUSB2、ttyUSB3均属于EC20，不能当作LoRa端口使用。
 - 当前USB列表未发现可归属于LoRa的转接器；不据此断定模块损坏。下一步使用sudo dmesg -w观察插拔LoRa USB的枚举日志，检查连接、供电、数据线及驱动。
 - 本轮尚未进行LoRa收发测试。
+
+## 接入LoRa后的检查结果
+
+用户确认此前未接LoRa，因此之前的设备列表缺失并非识别故障。接入后：
+
+- USB VID:PID为1a86:7523，系统名称QinHeng Electronics HL-340 USB-Serial adapter。
+- 当前串口/dev/ttyUSB10。
+- 稳定路径/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0，后续程序优先使用该路径；若接入多个同描述符转接器，需要另行区分。
+- 转接器枚举成功，不等于LoRa射频收发已经通过；尚待串口权限、参数、工作模式及地面端COM号确认。
