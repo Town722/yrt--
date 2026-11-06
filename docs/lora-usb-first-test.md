@@ -1,6 +1,19 @@
 # LoRa USB 首轮测试
 
-日期：2026-11-05。
+## 双向透传实测（2026-11-06）
+
+- 移动端 RK3588（Ubuntu）使用 Python 3 和 pySerial，设备路径为 `/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0`。
+- 地面端 Windows 使用 CH340 `COM16`，由 PowerShell 打开串口。
+- 两端使用 9600 波特、8 数据位、无校验、1 停止位，关闭硬件和软件流控，DTR 和 RTS 均为非激活。消息以 LF 结尾。
+
+| 方向 | 实测结果 |
+| --- | --- |
+| RK3588 → Windows | Windows 收到 `YRT-LORA-AIR\n` |
+| Windows → RK3588 | Windows 回发 `YRT-LORA-GCS\n`，RK3588 输出 `RX: b'YRT-LORA-GCS\n'` |
+
+本次通过短消息双向透传。距离、丢包率、时延和 RSSI 留待后续实测。
+
+## 2026-11-05 调试记录
 
 ## 已确认
 
