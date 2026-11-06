@@ -1,0 +1,14 @@
+[Unit]
+Description=YRT 4G relay (%i)
+After=network.target
+
+[Service]
+DynamicUser=yes
+WorkingDirectory=/opt/yrt-relay
+EnvironmentFile=-/etc/yrt-relay.env
+ExecStart=/usr/bin/python3 /opt/yrt-relay/%i_relay.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
