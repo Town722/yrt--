@@ -1,5 +1,31 @@
 # 数显网桥：说明书识别与首次互通测试
 
+## RK3588 开机直连（2026-11-20）
+
+Windows 的 Realtek 有线网口「以太网」经一对已配对的网桥接到 RK3588 的 `eth0`。两端在网桥网口配置固定 IPv4，默认网关留空。这样板端的 4G 可以继续使用自己的默认路由，SSH 也无需路由器、Windows 网络共享或临时 DHCP。
+
+| 设备 | 网口 | 固定 IPv4 |
+| --- | --- | --- |
+| Windows 地面站 | `以太网` | `192.168.137.10/24` |
+| RK3588 | `eth0` | `192.168.137.246/24` |
+
+在 Windows 管理员 PowerShell 保存并检查持久配置：
+
+```powershell
+netsh.exe interface ipv4 set address name="以太网" source=static address=192.168.137.10 mask=255.255.255.0 gateway=none store=persistent
+Get-NetIPAddress -InterfaceAlias "以太网" -AddressFamily IPv4 -PolicyStore PersistentStore | Format-Table IPAddress, PrefixLength
+```
+
+连接到 RK3588 后，在 Ubuntu Shell 保存 `eth0` 的 NetworkManager 配置。重装系统或换板后，用 `nmcli -f NAME,UUID,DEVICE connection show --active` 确认 `eth0` 正在使用的连接 UUID。
+
+```bash
+sudo nmcli connection modify uuid 2112e044-01d7-3040-9fbd-255b4d64d2a9 connection.autoconnect yes ipv4.method manual ipv4.addresses 192.168.137.246/24 ipv4.gateway "" ipv4.dns "" ipv4.never-default yes
+```
+
+重启 RK3588 后，等网桥 Link 灯亮，在 Windows 执行 `ssh ztl@192.168.137.246`。本次未启动临时 DHCP，SSH 登录成功，板端 `ip -4 -br addr show dev eth0` 显示 `eth0 UP 192.168.137.246/24`。
+
+配置固定 IP 前，抓包显示板端的 DHCP 请求能穿过网桥到达 Windows，但未收到应答。临时 DHCP 给板端分配地址后，SSH 恢复，用于完成上述固定 IP 配置。
+
 ## 首次互通实测（2026-11-06）
 
 Windows 的有线网口经两台网桥连到 RK3588。Windows 使用 `192.168.137.1/24`，RK3588 使用 `192.168.137.246/24`。

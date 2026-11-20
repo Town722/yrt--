@@ -8,6 +8,7 @@
 - [地面站模拟预览](ground-station/index.html)支持模拟发送、断链、回放和 CSV 导出。真实三路发送与车端接收仍待接入。
 - 已采购 WHEELTEC 四轮底盘，正在分析 [RK3588 底盘控制及厂家资料](docs/wheeltec-r680-rk3588-control-2026-11-16.md)；实物型号、接口、固件和停车行为尚待核实。
 - RK3588 Ubuntu 与 Windows 已完成 [LoRa 双向短消息测试](docs/lora-usb-first-test.md)；[Wi-Fi 网桥](docs/wifi-bridge-first-test.md)已完成静态互通测试。
+- 已验证 [RK3588 开机经网桥直连](docs/wifi-bridge-first-test.md#rk3588-开机直连2026-11-20)。Windows 可在网桥配对后直接 SSH 到 `192.168.137.246`。
 - 已记录 [4G 与 LoRa 共存实测](docs/coexistence-2026-11-06/README.md)和[链路选择评审](docs/coexistence-2026-11-06/link-selection.md)；测试结论有场景和样本量限制。
 - [ECS 中转程序及部署说明](deploy/ecs-relay/README.md)已入库，当前服务器部署运行状态未核实。第一阶段优先完成无图像并发数传实验，摄像头暂不采购。
 - 以下早期讨论中“尚未定案”或“尚未实测”的描述可能已经过时，具体状态请以上述较新文档为准。
