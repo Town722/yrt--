@@ -1,0 +1,11 @@
+{
+  "serial": "COM10",
+  "wifi_ip": "192.168.137.10",
+  "wifi_peer": "192.168.137.246",
+  "wifi_port": 14552,
+  "ecs": "39.106.205.239",
+  "lte_port": 14550,
+  "lte_interface": 65,
+  "lte_ip": "192.168.43.100",
+  "logs": "logs"
+}

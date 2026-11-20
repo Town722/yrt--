@@ -1,0 +1,10 @@
+{
+  "serial": "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0",
+  "wifi_ip": "192.168.137.246",
+  "wifi_peer": "192.168.137.10",
+  "wifi_port": 14552,
+  "ecs": "39.106.205.239",
+  "lte_port": 14551,
+  "lte_interface": "wwxb6a4cc2d91d4",
+  "log": "/var/lib/yrt-fusion/rx.jsonl"
+}

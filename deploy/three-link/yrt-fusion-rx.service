@@ -1,0 +1,16 @@
+[Unit]
+Description=YRT three-link simulated command receiver
+After=network.target
+
+[Service]
+Type=simple
+User=ztl
+SupplementaryGroups=dialout
+StateDirectory=yrt-fusion
+ExecStart=/usr/bin/python3 /opt/yrt-fusion/fusion.py receive /etc/yrt-fusion/receive.json
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
