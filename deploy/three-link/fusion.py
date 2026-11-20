@@ -5,7 +5,9 @@ import argparse
 from collections import Counter, defaultdict, deque
 import csv
 from datetime import datetime
+import glob
 import json
+import math
 import os
 from pathlib import Path
 import queue
@@ -26,6 +28,16 @@ BODY = struct.Struct('!2sQIh')
 CRC = struct.Struct('!I')
 SIZE = BODY.size + CRC.size
 END = 0xffffffff
+RADIO_ANCHORS = {'lora': (-125, -75), 'wifi': (-85, -55), '4g': (-110, -80)}
+LTE_SAMPLE_MAX_AGE_NS = 6_000_000_000
+
+
+def radio_signal(link, dbm, *, rsrq=None):
+    weak, strong = RADIO_ANCHORS[link]
+    width = strong - weak
+    exponent = (dbm - (weak + strong) / 2) * (2 * math.log(9) / width)
+    return dict(metric='RSRP' if link == '4g' else 'RSSI', dbm=dbm, rsrq_db=rsrq,
+                quality_0_1=1 / (1 + math.exp(-exponent)), weak_dbm=weak, strong_dbm=strong)
 
 
 def format_run(run):
@@ -64,10 +76,11 @@ def decode(data):
 
 
 class FrameStream:
-    def __init__(self):
+    def __init__(self, radio_trailer=False):
         self.buffer = bytearray()
+        self.radio_trailer = radio_trailer
 
-    def feed(self, chunk):
+    def feed(self, chunk, idle=False):
         self.buffer.extend(chunk)
         while len(self.buffer) >= SIZE:
             offset = self.buffer.find(b'Y')
@@ -78,9 +91,45 @@ class FrameStream:
             if len(self.buffer) < SIZE:
                 return
             frame = decode(self.buffer[:SIZE])
-            del self.buffer[:SIZE if frame else 1]
-            if frame:
-                yield frame
+            if not frame:
+                del self.buffer[:1]
+                continue
+            consumed = SIZE
+            dbm = None
+            if self.radio_trailer:
+                tail = self.buffer[SIZE:SIZE + 2]
+                if (not tail or tail == b'Y') and not idle:
+                    return
+                if tail and tail not in (MAGIC, LEGACY_MAGIC):
+                    consumed += 1
+                    if tail[0] <= 146:
+                        dbm = tail[0] - 146
+            del self.buffer[:consumed]
+            yield frame + (dbm,) if self.radio_trailer else frame
+
+
+def read_serving_lte(modem):
+    modem.reset_input_buffer()
+    modem.write(b'AT+QENG="servingcell"\r')
+    sample = None
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        line = modem.readline().decode('ascii', errors='replace').strip()
+        if line == 'OK':
+            return sample
+        if line == 'ERROR' or line.startswith('+CME ERROR'):
+            return None
+        if not line.startswith('+QENG:'):
+            continue
+        fields = next(csv.reader([line.split(':', 1)[1].strip()]))
+        if len(fields) >= 17 and fields[0] == 'servingcell' and fields[2] == 'LTE':
+            try:
+                rsrp, rsrq = int(fields[13]), int(fields[14])
+            except ValueError:
+                continue
+            if -156 <= rsrp <= -30 and -40 <= rsrq <= 0:
+                sample = radio_signal('4g', rsrp, rsrq=rsrq)
+    return sample
 
 
 class Journal:
@@ -130,6 +179,7 @@ class Receiver:
         path = Path(config['log'])
         self.boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
         self.latest = {}
+        self.lte_signal = None
         if path.exists():
             for row in read_log(path):
                 if row['outcome'] == 'adopted':
@@ -137,10 +187,14 @@ class Receiver:
                     self.latest[run] = max(self.latest.get(run, 0), row['seq'])
         self.journal = Journal(path)
 
-    def accept(self, link, frame):
+    def accept(self, link, frame, signal=None):
         run, seq, value = frame
         with self.lock:
             now = time.monotonic_ns()
+            if link == '4g' and self.lte_signal is not None:
+                sample_time, reading = self.lte_signal
+                if now - sample_time <= LTE_SAMPLE_MAX_AGE_NS:
+                    signal = dict(reading, age_ms=(now - sample_time) / 1e6)
             top = self.latest.get(run, 0)
             if seq in (0, END):
                 result = 'start' if seq == 0 else 'end'
@@ -150,7 +204,7 @@ class Receiver:
             else:
                 result = 'duplicate' if seq == top else 'late'
             self.journal.write(run=run, seq=seq, value=value, link=link, outcome=result,
-                               mono_ns=now, utc_ns=time.time_ns(), boot=self.boot)
+                               mono_ns=now, utc_ns=time.time_ns(), boot=self.boot, radio=signal)
 
     def wifi(self):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as conn:
@@ -165,10 +219,24 @@ class Receiver:
     def lora(self):
         with open_serial(self.config['serial']) as conn:
             print('lora: listening', flush=True)
-            stream = FrameStream()
+            stream = FrameStream(radio_trailer=self.config.get('lora_rssi_suffix', True))
             while True:
-                for frame in stream.feed(conn.read(conn.in_waiting or 1)):
-                    self.accept('lora', frame)
+                chunk = conn.read(conn.in_waiting or 1)
+                for frame in stream.feed(chunk, idle=not chunk):
+                    dbm = frame[3] if len(frame) > 3 else None
+                    self.accept('lora', frame[:3], radio_signal('lora', dbm, rsrq=None) if dbm is not None else None)
+
+    def lte_radio(self):
+        pattern = self.config.get('lte_at', '/dev/serial/by-id/usb-Quectel_EC20*-if02-port0')
+        ports = glob.glob(pattern)
+        if len(ports) != 1:
+            raise OSError('Expected one EC20 AT port')
+        with serial.Serial(ports[0], 115200, timeout=0.2, write_timeout=1) as modem:
+            while True:
+                reading = read_serving_lte(modem)
+                with self.lock:
+                    self.lte_signal = (time.monotonic_ns(), reading) if reading is not None else None
+                time.sleep(2)
 
     def lte(self):
         with connect_lte(self.config['ecs'], self.config['lte_port'], self.config['lte_interface']) as conn:
@@ -196,7 +264,7 @@ class Receiver:
 
     def run(self):
         listeners = [(name, threading.Thread(target=self.maintain, args=(name, listen), daemon=True))
-                     for name, listen in zip(LINKS, (self.lora, self.wifi, self.lte))]
+                     for name, listen in zip(LINKS + ('EC20 measurements',), (self.lora, self.wifi, self.lte, self.lte_radio))]
         for _, thread in listeners:
             thread.start()
         while True:
@@ -321,8 +389,7 @@ def arrival_details(rows):
         start = experiment_start.setdefault(boot, clock)
         first = first_copy.setdefault((boot, row['seq']), clock)
         delay_ms = (clock - first) / 1e6
-        yield dict(row, rx_order=order, rx_elapsed_ms=(clock - start) / 1e6,
-                   relative_delay_ms=delay_ms, quality_0_1=1 / (1 + delay_ms / 1000))
+        yield dict(row, rx_order=order, rx_elapsed_ms=(clock - start) / 1e6, relative_delay_ms=delay_ms)
 
 
 def summarize(path, run, omitted=()):
@@ -375,15 +442,19 @@ def merge(tx_path, rx_path, output):
 
     def merge_row(tx, rx):
         row = tx or rx
+        signal = rx.get('radio') or {}
         return (run, row['seq'], row['link'], row['value'], tx.get('outcome'), tx.get('mono_ns'),
                 tx.get('error'), rx.get('outcome'), rx.get('mono_ns'), rx.get('boot'),
-                rx.get('rx_order'), rx.get('rx_elapsed_ms'), rx.get('relative_delay_ms'), rx.get('quality_0_1'))
+                rx.get('rx_order'), rx.get('rx_elapsed_ms'), rx.get('relative_delay_ms'), signal.get('metric'),
+                signal.get('dbm'), signal.get('rsrq_db'), signal.get('age_ms'), signal.get('weak_dbm'),
+                signal.get('strong_dbm'), signal.get('quality_0_1'))
 
     with output.open('w', encoding='utf-8-sig', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(('run', 'seq', 'link', 'value', 'tx_result', 'tx_mono_ns', 'tx_error',
                          'rx_result', 'rx_mono_ns', 'rx_boot', 'rx_order', 'rx_elapsed_ms', 'relative_delay_ms',
-                         'quality_0_1'))
+                         'rf_metric', 'rf_dbm', 'rf_rsrq_db', 'rf_sample_age_ms', 'rf_weak_dbm',
+                         'rf_strong_dbm', 'rf_quality_0_1'))
         for rx in received:
             copies = pending[rx['seq'], rx['link']]
             tx = {}

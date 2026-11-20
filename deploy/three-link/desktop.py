@@ -140,14 +140,15 @@ class Station:
         self.fetch_button.pack(side='right')
         self.rx_status = tk.StringVar()
         ttk.Label(body, textvariable=self.rx_status).pack(anchor='w', pady=(7, 5))
+        self.signal_table = self.table(body, ('链路', '车端无线测量', '归一化 0–1', '测量来源'), (108, 162, 132, 365), 3)
         tabs = ttk.Notebook(body)
         tabs.pack(fill='both', expand=True)
         arrivals, replay = ttk.Frame(tabs, padding=6), ttk.Frame(tabs, padding=6)
         tabs.add(arrivals, text='接收明细')
         tabs.add(replay, text='回放')
-        ttk.Label(arrivals, text='同序号首份质量为 1.000，副本晚到越久分越低。基于车端计时。').pack(anchor='w', pady=(0, 5))
-        self.arrivals_table = self.table(arrivals, ('到达顺序', '指令序号', '链路', '指令值', '车端处理', '比首份晚 ms', '质量 0–1'),
-                                         (86, 86, 104, 70, 96, 112, 110), 6, scroll=True)
+        ttk.Label(arrivals, text='无线分数按各链路自己的 RSSI 或 RSRP 计算。相对延迟单独记录。').pack(anchor='w', pady=(0, 5))
+        self.arrivals_table = self.table(arrivals, ('到达顺序', '指令序号', '链路', '指令值', '车端处理', '延迟差 ms', '无线测量', '质量 0–1'),
+                                         (78, 78, 99, 63, 81, 88, 128, 88), 5, scroll=True)
         replay_scope = ttk.Frame(replay)
         replay_scope.pack(fill='x', pady=(0, 6))
         ttk.Label(replay_scope, text='参与回放').pack(side='left', padx=(0, 8))
@@ -239,6 +240,19 @@ class Station:
             self.fill(self.replay_table, [(scope, updates, f'{gap:.1f} ms', by_source or '—')])
 
     def render_arrivals(self, rows, source):
+        latest = {}
+        for row in rows:
+            if row.get('radio'):
+                latest[row['link']] = row['radio']
+        table = []
+        for link in fusion.LINKS:
+            reading = latest.get(link)
+            description = {'lora': 'HD-M805 无线包尾字节', 'wifi': '网桥管理页待接入', '4g': '车端 EC20 服务小区采样'}[link]
+            raw, quality = self.signal_values(reading)
+            if reading and reading.get('rsrq_db') is not None:
+                description += f" · RSRQ {reading['rsrq_db']} dB"
+            table.append((NAME[link], raw, quality, description))
+        self.fill(self.signal_table, table)
         if self.arrival_view != source:
             self.fill(self.arrivals_table, [])
             self.arrival_view = source
@@ -246,9 +260,16 @@ class Station:
         for row in fusion.arrival_details(rows):
             order = row.get('rx_order', 0)
             if order > self.arrival_count:
+                raw, quality = self.signal_values(row.get('radio'))
                 self.arrivals_table.insert('', 'end', values=(order, row['seq'], NAME[row['link']], row['value'],
-                    OUTCOME[row['outcome']], f"{row['relative_delay_ms']:.1f}", f"{row['quality_0_1']:.3f}"))
+                    OUTCOME[row['outcome']], f"{row['relative_delay_ms']:.1f}", raw, quality))
                 self.arrival_count = order
+
+    @staticmethod
+    def signal_values(reading):
+        if reading is None:
+            return '—', '—'
+        return f"{reading['metric']} {reading['dbm']} dBm", f"{reading['quality_0_1']:.3f}"
 
     def render_live(self):
         if self.selected.get() != self.live_run:
