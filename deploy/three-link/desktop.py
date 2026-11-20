@@ -247,7 +247,7 @@ class Station:
         table = []
         for link in fusion.LINKS:
             reading = latest.get(link)
-            description = {'lora': 'HD-M805 无线包尾字节', 'wifi': '网桥管理页待接入', '4g': '车端 EC20 服务小区采样'}[link]
+            description = {'lora': 'HD-M805 无线包尾字节', 'wifi': '车端网桥的对端无线采样', '4g': '车端 EC20 服务小区采样'}[link]
             raw, quality = self.signal_values(reading)
             if reading and reading.get('rsrq_db') is not None:
                 description += f" · RSRQ {reading['rsrq_db']} dB"

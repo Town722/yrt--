@@ -2,15 +2,19 @@
 """Send simulated commands over three links and replay the receiver log."""
 
 import argparse
+import base64
 from collections import Counter, defaultdict, deque
+from contextlib import closing
 import csv
 from datetime import datetime
 import glob
+import http.client
 import json
 import math
 import os
 from pathlib import Path
 import queue
+import re
 import socket
 import struct
 import subprocess
@@ -29,7 +33,8 @@ CRC = struct.Struct('!I')
 SIZE = BODY.size + CRC.size
 END = 0xffffffff
 RADIO_ANCHORS = {'lora': (-125, -75), 'wifi': (-85, -55), '4g': (-110, -80)}
-LTE_SAMPLE_MAX_AGE_NS = 6_000_000_000
+RADIO_SAMPLE_MAX_AGE_NS = 6_000_000_000
+BRIDGE_STATUS_PATH = '/Main_WStatus_Content.asp'
 
 
 def radio_signal(link, dbm, *, rsrq=None):
@@ -132,6 +137,26 @@ def read_serving_lte(modem):
     return sample
 
 
+def read_bridge_signal(host, source, auth):
+    with closing(http.client.HTTPConnection(host, timeout=2, source_address=(source, 0))) as conn:
+        conn.request('GET', BRIDGE_STATUS_PATH, headers={'Authorization': auth, 'Cache-Control': 'no-cache'})
+        response = conn.getresponse()
+        if response.status != 200:
+            raise OSError(f'Bridge wireless status returned HTTP {response.status}')
+        page = response.read(65536).decode('utf-8', errors='replace')
+    section = re.search(r'AP-Client Connection\s*\n-+\s*\n[^\r\n]*\bRSSI[^\r\n]*\r?\n([^\r\n<]+)', page)
+    if not section:
+        return None
+    fields = section[1].split()
+    if len(fields) < 2 or not re.fullmatch(r'(?:[\da-f]{2}:){5}[\da-f]{2}', fields[0], re.I):
+        return None
+    try:
+        rssi = int(fields[-1])
+    except ValueError:
+        return None
+    return radio_signal('wifi', rssi) if -130 <= rssi < 0 else None
+
+
 class Journal:
     def __init__(self, path):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -179,7 +204,7 @@ class Receiver:
         path = Path(config['log'])
         self.boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
         self.latest = {}
-        self.lte_signal = None
+        self.radio_samples = {}
         if path.exists():
             for row in read_log(path):
                 if row['outcome'] == 'adopted':
@@ -191,9 +216,9 @@ class Receiver:
         run, seq, value = frame
         with self.lock:
             now = time.monotonic_ns()
-            if link == '4g' and self.lte_signal is not None:
-                sample_time, reading = self.lte_signal
-                if now - sample_time <= LTE_SAMPLE_MAX_AGE_NS:
+            if link in self.radio_samples:
+                sample_time, reading = self.radio_samples[link]
+                if now - sample_time <= RADIO_SAMPLE_MAX_AGE_NS:
                     signal = dict(reading, age_ms=(now - sample_time) / 1e6)
             top = self.latest.get(run, 0)
             if seq in (0, END):
@@ -234,9 +259,33 @@ class Receiver:
         with serial.Serial(ports[0], 115200, timeout=0.2, write_timeout=1) as modem:
             while True:
                 reading = read_serving_lte(modem)
-                with self.lock:
-                    self.lte_signal = (time.monotonic_ns(), reading) if reading is not None else None
+                self.save_radio('4g', reading)
                 time.sleep(2)
+
+    def wifi_radio(self):
+        path = Path(self.config.get('bridge_auth', '/etc/yrt-fusion/bridge-auth.json'))
+        try:
+            settings = json.loads(path.read_text(encoding='utf-8'))
+            secret = f"{settings['username']}:{settings['password']}".encode()
+            host, source = settings['host'], settings['source']
+        except (ValueError, KeyError, TypeError) as error:
+            raise OSError('Invalid bridge wireless status configuration') from error
+        auth = 'Basic ' + base64.b64encode(secret).decode('ascii')
+        announced = False
+        while True:
+            reading = read_bridge_signal(host, source, auth)
+            self.save_radio('wifi', reading)
+            if reading and not announced:
+                print(f"wifi: bridge wireless status reports RSSI {reading['dbm']} dBm", flush=True)
+                announced = True
+            time.sleep(2)
+
+    def save_radio(self, link, reading):
+        with self.lock:
+            if reading is None:
+                self.radio_samples.pop(link, None)
+            else:
+                self.radio_samples[link] = (time.monotonic_ns(), reading)
 
     def lte(self):
         with connect_lte(self.config['ecs'], self.config['lte_port'], self.config['lte_interface']) as conn:
@@ -258,13 +307,16 @@ class Receiver:
         while True:
             try:
                 listen()
-            except (OSError, subprocess.SubprocessError) as error:
+            except (OSError, http.client.HTTPException, subprocess.SubprocessError) as error:
                 print(f'{link}: {error}', flush=True)
                 time.sleep(2)
 
     def run(self):
+        sources = list(zip(LINKS + ('EC20 measurements',), (self.lora, self.wifi, self.lte, self.lte_radio)))
+        if Path(self.config.get('bridge_auth', '/etc/yrt-fusion/bridge-auth.json')).is_file():
+            sources.append(('Bridge measurements', self.wifi_radio))
         listeners = [(name, threading.Thread(target=self.maintain, args=(name, listen), daemon=True))
-                     for name, listen in zip(LINKS + ('EC20 measurements',), (self.lora, self.wifi, self.lte, self.lte_radio))]
+                     for name, listen in sources]
         for _, thread in listeners:
             thread.start()
         while True:
