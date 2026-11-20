@@ -306,7 +306,26 @@ def read_log(path):
                 print(f'Skipping incomplete log record in {path}', flush=True)
 
 
-def summarize(path, run):
+def arrival_details(rows):
+    """Enrich the receiver's append order using its own monotonic clock."""
+    experiment_start = {}
+    first_copy = {}
+    order = 0
+    for row in rows:
+        if not 0 < row['seq'] < END:
+            yield row
+            continue
+        order += 1
+        clock = row['mono_ns']
+        boot = row.get('boot')
+        start = experiment_start.setdefault(boot, clock)
+        first = first_copy.setdefault((boot, row['seq']), clock)
+        delay_ms = (clock - first) / 1e6
+        yield dict(row, rx_order=order, rx_elapsed_ms=(clock - start) / 1e6,
+                   relative_delay_ms=delay_ms, quality_0_1=1 / (1 + delay_ms / 1000))
+
+
+def summarize(path, run, omitted=()):
     rows = [row for row in read_log(path) if row['run'] == run]
     if not rows:
         raise ValueError('Run not found')
@@ -316,33 +335,30 @@ def summarize(path, run):
     first = min(row['mono_ns'] for row in rows)
     last = max(row['mono_ns'] for row in rows)
     complete = any(row['seq'] == 0 for row in rows) and any(row['seq'] == END for row in rows)
-    comparisons = []
-    for excluded in (None,) + LINKS:
-        top = 0
-        adopted = []
-        sources = Counter()
-        for row in commands:
-            if row['link'] != excluded and row['seq'] > top:
-                top = row['seq']
-                adopted.append(row['mono_ns'])
-                sources[row['link']] += 1
-        points = [first] + adopted + [last]
-        gap_ms = max(b - a for a, b in zip(points, points[1:])) / 1e6
-        comparisons.append((excluded, len(adopted), gap_ms, dict(sources)))
-    return complete, Counter(row['link'] for row in commands), Counter(row['outcome'] for row in commands), comparisons
+    top = 0
+    adopted = []
+    sources = Counter()
+    for row in commands:
+        if row['link'] not in omitted and row['seq'] > top:
+            top = row['seq']
+            adopted.append(row['mono_ns'])
+            sources[row['link']] += 1
+    points = [first] + adopted + [last]
+    gap_ms = max(b - a for a, b in zip(points, points[1:])) / 1e6
+    return (complete, Counter(row['link'] for row in commands), Counter(row['outcome'] for row in commands),
+            (len(adopted), gap_ms, dict(sources)))
 
 
-def report(path, run):
+def report(path, run, omitted=()):
     try:
-        complete, links, outcomes, comparisons = summarize(path, run)
+        complete, links, outcomes, (updates, gap_ms, sources) = summarize(path, run, omitted)
     except ValueError as error:
         raise SystemExit(str(error)) from error
     print('Observation bounds:', 'start and end received' if complete else 'partial reception')
     print('Received copies:', dict(links))
     print('Receiver outcomes:', dict(outcomes))
-    for excluded, updates, gap_ms, sources in comparisons:
-        print(f"{'without ' + excluded if excluded else 'all links'}: {updates} updates, "
-              f'longest gap {gap_ms:.1f} ms, adopted by source {sources}')
+    scope = 'without ' + ', '.join(omitted) if omitted else 'all links'
+    print(f'{scope}: {updates} updates, longest gap {gap_ms:.1f} ms, adopted by source {sources}')
 
 
 def merge(tx_path, rx_path, output):
@@ -350,27 +366,35 @@ def merge(tx_path, rx_path, output):
     if not sent:
         raise SystemExit('Sender log is empty')
     run = sent[0]['run']
-    received = defaultdict(deque)
-    for row in read_log(rx_path):
-        if row['run'] == run:
-            received[row['seq'], row['link']].append(row)
+    pending = defaultdict(deque)
+    for index, row in enumerate(sent):
+        if row['outcome'] == 'submitted':
+            pending[row['seq'], row['link']].append(index)
+    matched = set()
+    received = arrival_details(row for row in read_log(rx_path) if row['run'] == run)
 
     def merge_row(tx, rx):
         row = tx or rx
         return (run, row['seq'], row['link'], row['value'], tx.get('outcome'), tx.get('mono_ns'),
-                tx.get('error'), rx.get('outcome'), rx.get('mono_ns'), rx.get('boot'))
+                tx.get('error'), rx.get('outcome'), rx.get('mono_ns'), rx.get('boot'),
+                rx.get('rx_order'), rx.get('rx_elapsed_ms'), rx.get('relative_delay_ms'), rx.get('quality_0_1'))
 
     with output.open('w', encoding='utf-8-sig', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(('run', 'seq', 'link', 'value', 'tx_result', 'tx_mono_ns', 'tx_error',
-                         'rx_result', 'rx_mono_ns', 'rx_boot'))
-        for row in sent:
-            copies = received[row['seq'], row['link']]
-            rx = copies.popleft() if copies else {}
-            writer.writerow(merge_row(row, rx))
-        for copies in received.values():
-            for rx in copies:
-                writer.writerow(merge_row({}, rx))
+                         'rx_result', 'rx_mono_ns', 'rx_boot', 'rx_order', 'rx_elapsed_ms', 'relative_delay_ms',
+                         'quality_0_1'))
+        for rx in received:
+            copies = pending[rx['seq'], rx['link']]
+            tx = {}
+            if copies:
+                index = copies.popleft()
+                tx = sent[index]
+                matched.add(index)
+            writer.writerow(merge_row(tx, rx))
+        for index, tx in enumerate(sent):
+            if index not in matched:
+                writer.writerow(merge_row(tx, {}))
 
 
 def main():
@@ -387,13 +411,16 @@ def main():
     replay = subs.add_parser('report')
     replay.add_argument('log', type=Path)
     replay.add_argument('run')
+    replay.add_argument('--omit', action='append', default=[], choices=LINKS)
     combine = subs.add_parser('merge')
     combine.add_argument('tx', type=Path)
     combine.add_argument('rx', type=Path)
     combine.add_argument('output', type=Path)
     args = parser.parse_args()
     if args.mode == 'report':
-        report(args.log, args.run)
+        if set(args.omit) == set(LINKS):
+            parser.error('at least one link must be enabled')
+        report(args.log, args.run, args.omit)
     elif args.mode == 'merge':
         merge(args.tx, args.rx, args.output)
     else:

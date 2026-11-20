@@ -6,6 +6,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import queue
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,7 @@ import serial
 
 
 NAME = {'lora': 'LoRa', 'wifi': 'Wi-Fi 网桥', '4g': '4G'}
+OUTCOME = {'adopted': '采用', 'duplicate': '重复', 'late': '晚到'}
 SETTINGS = (
     ('serial', 'LoRa 串口'), ('wifi_ip', '电脑网桥 IP'), ('wifi_peer', 'RK3588 网桥 IP'),
     ('wifi_port', '网桥 UDP 端口'), ('ecs', 'ECS IPv4'), ('lte_port', 'ECS 数传端口'),
@@ -52,6 +54,10 @@ class Station:
         self.stop_signal = threading.Event()
         self.result = None
         self.live_run = ''
+        self.live_feed = None
+        self.live_rows = []
+        self.arrival_view = None
+        self.arrival_count = 0
         self.fetch = None
         self.dial_worker = None
         self.dial_result = ''
@@ -61,6 +67,7 @@ class Station:
         self.count = tk.StringVar(value='20')
         self.hz = tk.StringVar(value='1')
         self.links = {link: tk.BooleanVar(value=True) for link in fusion.LINKS}
+        self.replay_links = {link: tk.BooleanVar(value=True) for link in fusion.LINKS}
         self.route_text = tk.StringVar()
         self.make_window()
         self.load_runs()
@@ -70,8 +77,8 @@ class Station:
     def make_window(self):
         root = self.root
         root.title('YRT 三链路地面站')
-        root.geometry('900x650')
-        root.minsize(780, 600)
+        root.geometry('970x760')
+        root.minsize(840, 670)
         root.configure(bg='#edf2f5')
         root.protocol('WM_DELETE_WINDOW', self.close)
         root.option_add('*Font', ('Microsoft YaHei UI', 10))
@@ -126,24 +133,44 @@ class Station:
 
         receive = ttk.Frame(body)
         receive.pack(fill='x')
-        ttk.Label(receive, text='车端回放', font=('Microsoft YaHei UI', 12, 'bold')).pack(side='left')
+        ttk.Label(receive, text='车端接收', font=('Microsoft YaHei UI', 12, 'bold')).pack(side='left')
         ttk.Button(receive, text='导出 CSV', command=self.export).pack(side='right')
         ttk.Button(receive, text='导入日志', command=self.import_log).pack(side='right', padx=5)
         self.fetch_button = ttk.Button(receive, text='从 RK3588 取日志', command=self.fetch_log)
         self.fetch_button.pack(side='right')
         self.rx_status = tk.StringVar()
         ttk.Label(body, textvariable=self.rx_status).pack(anchor='w', pady=(7, 5))
-        self.replay_table = self.table(body, ('回放范围', '有效更新', '最长更新空档', '采用来源'), (150, 90, 145, 340), 4)
+        tabs = ttk.Notebook(body)
+        tabs.pack(fill='both', expand=True)
+        arrivals, replay = ttk.Frame(tabs, padding=6), ttk.Frame(tabs, padding=6)
+        tabs.add(arrivals, text='接收明细')
+        tabs.add(replay, text='回放')
+        ttk.Label(arrivals, text='同序号首份质量为 1.000，副本晚到越久分越低。基于车端计时。').pack(anchor='w', pady=(0, 5))
+        self.arrivals_table = self.table(arrivals, ('到达顺序', '指令序号', '链路', '指令值', '车端处理', '比首份晚 ms', '质量 0–1'),
+                                         (86, 86, 104, 70, 96, 112, 110), 6, scroll=True)
+        replay_scope = ttk.Frame(replay)
+        replay_scope.pack(fill='x', pady=(0, 6))
+        ttk.Label(replay_scope, text='参与回放').pack(side='left', padx=(0, 8))
+        for link in fusion.LINKS:
+            ttk.Checkbutton(replay_scope, text=NAME[link], variable=self.replay_links[link],
+                            command=self.render).pack(side='left', padx=(0, 5))
+        self.replay_table = self.table(replay, ('回放范围', '有效更新', '最长更新空档', '采用来源'), (230, 90, 145, 340), 2)
         ttk.Separator(body).pack(fill='x', pady=(12, 6))
         ttk.Label(body, textvariable=self.status, wraplength=720).pack(fill='x', anchor='w')
 
     @staticmethod
-    def table(parent, columns, widths, height):
+    def table(parent, columns, widths, height, scroll=False):
         table = ttk.Treeview(parent, columns=columns, show='headings', height=height, selectmode='none')
         for col, width in zip(columns, widths):
             table.heading(col, text=col, anchor='w')
             table.column(col, width=width, minwidth=60, stretch=col == columns[-1])
-        table.pack(fill='x')
+        if scroll:
+            scrollbar = ttk.Scrollbar(parent, orient='vertical', command=table.yview)
+            scrollbar.pack(side='right', fill='y')
+            table.configure(yscrollcommand=scrollbar.set)
+            table.pack(side='left', fill='both', expand=True)
+        else:
+            table.pack(fill='x')
         return table
 
     @staticmethod
@@ -186,20 +213,98 @@ class Station:
     def render(self):
         self.render_tx()
         self.fill(self.replay_table, [])
-        if not self.rx.is_file() or not self.selected.get():
+        run = self.selected.get()
+        rows = [row for row in fusion.read_log(self.rx) if row['run'] == run] if run and self.rx.is_file() else []
+        if not rows and run and run == self.live_run:
+            self.render_live()
+            return
+        self.render_arrivals(rows, (run, 'saved', self.rx.stat().st_mtime_ns if rows else 0))
+        if not rows:
             self.rx_status.set('选择实验后，从 RK3588 取日志或导入 rx.jsonl。')
             return
+        omitted = [link for link, var in self.replay_links.items() if not var.get()]
         try:
-            complete, received, _, comparisons = fusion.summarize(self.rx, self.selected.get())
+            complete, received, _, (updates, gap, sources) = fusion.summarize(self.rx, run, omitted)
         except (OSError, ValueError) as error:
             self.rx_status.set('导入的日志中没有本轮记录。' if str(error) == 'Run not found'
                                else f'无法回放 · {error}')
             return
         figures = '   '.join(f'{NAME[link]} {received[link]} 份' for link in fusion.LINKS)
         self.rx_status.set(figures + ('   ·   起止帧齐全' if complete else '   ·   缺起止帧，观察窗口不完整'))
-        self.fill(self.replay_table, [(f'排除 {NAME[excluded]}' if excluded else '全部链路', updates,
-                                      f'{gap:.1f} ms', ' / '.join(f'{NAME[link]} {n}' for link, n in sources.items()) or '—')
-                                     for excluded, updates, gap, sources in comparisons])
+        if len(omitted) == len(fusion.LINKS):
+            self.fill(self.replay_table, [('请选择至少一条链路', '—', '—', '—')])
+        else:
+            scope = '排除 ' + ' / '.join(NAME[link] for link in omitted) if omitted else '全部链路'
+            by_source = ' / '.join(f'{NAME[link]} {n}' for link, n in sources.items())
+            self.fill(self.replay_table, [(scope, updates, f'{gap:.1f} ms', by_source or '—')])
+
+    def render_arrivals(self, rows, source):
+        if self.arrival_view != source:
+            self.fill(self.arrivals_table, [])
+            self.arrival_view = source
+            self.arrival_count = 0
+        for row in fusion.arrival_details(rows):
+            order = row.get('rx_order', 0)
+            if order > self.arrival_count:
+                self.arrivals_table.insert('', 'end', values=(order, row['seq'], NAME[row['link']], row['value'],
+                    OUTCOME[row['outcome']], f"{row['relative_delay_ms']:.1f}", f"{row['quality_0_1']:.3f}"))
+                self.arrival_count = order
+
+    def render_live(self):
+        if self.selected.get() != self.live_run:
+            return
+        counts = Counter(row['link'] for row in self.live_rows if 0 < row['seq'] < fusion.END)
+        figures = '   '.join(f'{NAME[link]} {counts[link]} 份' for link in fusion.LINKS)
+        self.rx_status.set(figures + '   ·   通过 SSH 实时查看，完整数据以取回的车端日志为准')
+        self.render_arrivals(self.live_rows, (self.live_run, 'live'))
+
+    def start_live_feed(self):
+        ssh = shutil.which('ssh.exe')
+        if not ssh:
+            return
+        run = self.live_run
+        destination = f"ztl@{self.config['wifi_peer']}"
+        incoming = queue.Queue()
+        try:
+            process = subprocess.Popen([ssh, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=4', '-o',
+                                        'ServerAliveInterval=3', '-o', 'ServerAliveCountMax=2', destination,
+                                        'tail -n 0 -F /var/lib/yrt-fusion/rx.jsonl'], stdout=subprocess.PIPE,
+                                       stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
+        except OSError:
+            return
+
+        def read():
+            with process.stdout:
+                for raw in process.stdout:
+                    try:
+                        row = json.loads(raw)
+                    except ValueError:
+                        continue
+                    if row['run'] == run:
+                        incoming.put(row)
+
+        self.live_feed = (process, incoming)
+        threading.Thread(target=read, daemon=True).start()
+
+    def pull_live_rows(self):
+        if self.live_feed is None:
+            return
+        _, incoming = self.live_feed
+        before = len(self.live_rows)
+        while True:
+            try:
+                self.live_rows.append(incoming.get_nowait())
+            except queue.Empty:
+                break
+        if len(self.live_rows) > before:
+            self.render_live()
+
+    def stop_live_feed(self):
+        if self.live_feed is not None:
+            process, _ = self.live_feed
+            if process.poll() is None:
+                process.terminate()
+            self.live_feed = None
 
     def edit_settings(self):
         dialog = tk.Toplevel(self.root, padx=16, pady=12)
@@ -253,6 +358,7 @@ class Station:
             self.status.set(f'无法创建实验 · {error}')
             return
         self.live_run = fusion.format_run(run)
+        self.live_rows = []
         self.selected.set(self.live_run)
         self.stop_signal.clear()
         self.result = None
@@ -267,6 +373,7 @@ class Station:
             except Exception as error:
                 self.result = str(error)
 
+        self.start_live_feed()
         self.worker = threading.Thread(target=send)
         self.worker.start()
         self.start_button.configure(state='disabled')
@@ -340,7 +447,7 @@ class Station:
             self.status.set(f'导入失败 · {error}')
             return False
 
-    def fetch_log(self):
+    def fetch_log(self, automatic=False):
         scp = shutil.which('scp.exe')
         if not scp:
             self.status.set('未找到 Windows OpenSSH。可以直接导入板端 rx.jsonl。')
@@ -349,10 +456,12 @@ class Station:
         try:
             self.pending_rx.unlink(missing_ok=True)
             # OpenSSH owns authentication in a separate terminal. No password is stored by the app.
-            self.fetch = subprocess.Popen([scp, '-o', 'ConnectTimeout=7', endpoint, str(self.pending_rx)],
-                                          creationflags=subprocess.CREATE_NEW_CONSOLE)
+            options = ['-o', 'BatchMode=yes'] if automatic else []
+            self.fetch = subprocess.Popen([scp, '-o', 'ConnectTimeout=7', *options, endpoint, str(self.pending_rx)],
+                                          creationflags=subprocess.CREATE_NO_WINDOW if automatic else subprocess.CREATE_NEW_CONSOLE)
             self.fetch_button.configure(state='disabled')
-            self.status.set('正在通过 SSH 取日志。如果终端提示，请在终端输入板端密码。')
+            self.status.set('正在自动取回车端日志。' if automatic else
+                            '正在通过 SSH 取日志。如果终端提示，请在终端输入板端密码。')
         except OSError as error:
             self.status.set(f'无法启动 SCP · {error}')
 
@@ -377,11 +486,13 @@ class Station:
                 self.status.set(f'导出失败 · {error}')
 
     def tick(self):
+        self.pull_live_rows()
         if self.worker is not None:
             if self.worker.is_alive():
                 self.render_tx()
             else:
                 self.worker = None
+                self.stop_live_feed()
                 self.start_button.configure(state='normal')
                 self.settings_button.configure(state='normal')
                 self.dial_button.configure(state='normal')
@@ -390,6 +501,8 @@ class Station:
                     self.fetch_button.configure(state='normal')
                 self.status.set(f'测试失败 · {self.result}' if self.result else f'本轮已保存 · {self.live_run}')
                 self.load_runs()
+                if self.fetch is None and not self.result:
+                    self.fetch_log(automatic=True)
         if self.dial_worker is not None and not self.dial_worker.is_alive():
             self.dial_worker = None
             self.start_button.configure(state='normal')
@@ -400,7 +513,7 @@ class Station:
             if self.fetch.returncode == 0 and self.pending_rx.exists():
                 self.accept_log(self.pending_rx)
             else:
-                self.status.set('取日志失败。请确认 SSH 可连，并检查终端中的密码或错误提示。')
+                self.status.set('未取回日志。网桥恢复后，可点击「从 RK3588 取日志」补全接收记录。')
             self.pending_rx.unlink(missing_ok=True)
             self.fetch = None
             if self.worker is None:
@@ -415,6 +528,7 @@ class Station:
         if self.dial_worker is not None:
             self.root.after(400, self.close)
             return
+        self.stop_live_feed()
         self.root.destroy()
 
 
