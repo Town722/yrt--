@@ -4,11 +4,11 @@
 import argparse
 from collections import Counter, defaultdict, deque
 import csv
+from datetime import datetime
 import json
 import os
 from pathlib import Path
 import queue
-import secrets
 import socket
 import struct
 import subprocess
@@ -20,11 +20,32 @@ import serial
 
 
 LINKS = ('lora', 'wifi', '4g')
-MAGIC = b'YR'
+MAGIC = b'YT'
+LEGACY_MAGIC = b'YR'
 BODY = struct.Struct('!2sQIh')
 CRC = struct.Struct('!I')
 SIZE = BODY.size + CRC.size
 END = 0xffffffff
+
+
+def format_run(run):
+    digits = f'{run:014d}'
+    minute, occurrence = f'{digits[:8]}-{digits[8:12]}', digits[12:]
+    return minute if occurrence == '01' else f'{minute}-{occurrence}'
+
+
+def reserve_run(directory):
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    minute = int(datetime.now().strftime('%Y%m%d%H%M')) * 100
+    for occurrence in range(1, 100):
+        run = minute + occurrence
+        try:
+            with (directory / f'tx-{format_run(run)}.jsonl').open('x', encoding='utf-8'):
+                return run
+        except FileExistsError:
+            continue
+    raise OSError('同一分钟已创建 99 轮实验，请在下一分钟重试。')
 
 
 def encode(run, seq, value):
@@ -33,12 +54,13 @@ def encode(run, seq, value):
 
 
 def decode(data):
-    if len(data) != SIZE or data[:2] != MAGIC:
+    if len(data) != SIZE or data[:2] not in (MAGIC, LEGACY_MAGIC):
         return None
     body = data[:-CRC.size]
     if zlib.crc32(body) != CRC.unpack(data[-CRC.size:])[0]:
         return None
-    return BODY.unpack(body)[1:]
+    magic, run, seq, value = BODY.unpack(body)
+    return (format_run(run) if magic == MAGIC else f'{run:016x}', seq, value)
 
 
 class FrameStream:
@@ -48,7 +70,7 @@ class FrameStream:
     def feed(self, chunk):
         self.buffer.extend(chunk)
         while len(self.buffer) >= SIZE:
-            offset = self.buffer.find(MAGIC)
+            offset = self.buffer.find(b'Y')
             if offset < 0:
                 del self.buffer[:-1]
                 return
@@ -117,7 +139,6 @@ class Receiver:
 
     def accept(self, link, frame):
         run, seq, value = frame
-        run = f'{run:016x}'
         with self.lock:
             now = time.monotonic_ns()
             top = self.latest.get(run, 0)
@@ -208,7 +229,7 @@ def sender(link, pending, config, journal, lock):
             item = pending.get()
             if item is None:
                 return
-            run, seq, value, frame, deadline = item
+            run_id, seq, value, frame, deadline = item
             started = time.monotonic_ns()
             error = None
             try:
@@ -229,7 +250,7 @@ def sender(link, pending, config, journal, lock):
                     conn.close()
                     conn = None
             with lock:
-                journal.write(run=f'{run:016x}', seq=seq, value=value, link=link, outcome='failed' if error else 'submitted',
+                journal.write(run=run_id, seq=seq, value=value, link=link, outcome='failed' if error else 'submitted',
                               started_ns=started, mono_ns=time.monotonic_ns(), utc_ns=time.time_ns(), error=error)
     finally:
         if conn is not None:
@@ -237,9 +258,9 @@ def sender(link, pending, config, journal, lock):
 
 
 def transmit(config, hz, seqs, omitted, *, run=None, stop=None):
-    run = secrets.randbits(64) if run is None else run
+    run = reserve_run(config['logs']) if run is None else run
     stop = stop if stop is not None else threading.Event()
-    run_id = f'{run:016x}'
+    run_id = format_run(run)
     path = Path(config['logs']) / f'tx-{run_id}.jsonl'
     journal = Journal(path)
     lock = threading.Lock()
@@ -250,7 +271,7 @@ def transmit(config, hz, seqs, omitted, *, run=None, stop=None):
         worker.start()
 
     def publish(seq, value):
-        item = (run, seq, value, encode(run, seq, value), time.monotonic() + 5)
+        item = (run_id, seq, value, encode(run, seq, value), time.monotonic() + 5)
         for pending in queues.values():
             pending.put(item)
 

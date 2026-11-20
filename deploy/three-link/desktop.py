@@ -6,7 +6,6 @@ import ipaddress
 import json
 import os
 from pathlib import Path
-import secrets
 import shutil
 import subprocess
 import sys
@@ -248,8 +247,12 @@ class Station:
         if len(omitted) == len(fusion.LINKS):
             self.status.set('请至少选择一条链路。')
             return
-        run = secrets.randbits(64)
-        self.live_run = f'{run:016x}'
+        try:
+            run = fusion.reserve_run(self.logs)
+        except OSError as error:
+            self.status.set(f'无法创建实验 · {error}')
+            return
+        self.live_run = fusion.format_run(run)
         self.selected.set(self.live_run)
         self.stop_signal.clear()
         self.result = None
