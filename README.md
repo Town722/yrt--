@@ -2,12 +2,14 @@
 
 > 本文保留早期方案与采购讨论；项目已开展硬件实测并采购四轮底盘，最新进度以以下记录为准。
 
-## 最新进度与资料索引（2026-11-16）
+## 最新进度与资料索引（2026-11-20）
 
+- 第一阶段采用 [三链路并发数传基线](docs/three-link-baseline.md)。Windows 在 LoRa、Wi-Fi 网桥和 4G 上发送同一编号的模拟指令，RK3588 按递增序号更新状态并记录全部到达副本。底盘由原装遥控器独立驾驶。
+- [地面站模拟预览](ground-station/index.html)支持模拟发送、断链、回放和 CSV 导出。真实三路发送与车端接收仍待接入。
 - 已采购 WHEELTEC 四轮底盘，正在分析 [RK3588 底盘控制及厂家资料](docs/wheeltec-r680-rk3588-control-2026-11-16.md)；实物型号、接口、固件和停车行为尚待核实。
 - RK3588 Ubuntu 与 Windows 已完成 [LoRa 双向短消息测试](docs/lora-usb-first-test.md)；[Wi-Fi 网桥](docs/wifi-bridge-first-test.md)已完成静态互通测试。
 - 已记录 [4G 与 LoRa 共存实测](docs/coexistence-2026-11-06/README.md)和[链路选择评审](docs/coexistence-2026-11-06/link-selection.md)；测试结论有场景和样本量限制。
-- [ECS 中转程序及部署说明](deploy/ecs-relay/README.md)已入库，当前服务器部署运行状态未核实。第一阶段优先完成无图像数传与切换实验，摄像头暂不采购。
+- [ECS 中转程序及部署说明](deploy/ecs-relay/README.md)已入库，当前服务器部署运行状态未核实。第一阶段优先完成无图像并发数传实验，摄像头暂不采购。
 - 以下早期讨论中“尚未定案”或“尚未实测”的描述可能已经过时，具体状态请以上述较新文档为准。
 
 ## 项目目标和边界

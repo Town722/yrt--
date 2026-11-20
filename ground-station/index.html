@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>多链路地面站 · 模拟预览</title><style>body{margin:0 auto;padding:16px;max-width:1100px;background:Canvas} @media(max-width:600px){body{padding:4px}}</style></head><body>
+<div id="yrt-station" lang="zh-CN">
+<style>
+#yrt-station{--paper:light-dark(#f5f6f3,#182020);--panel:light-dark(#fff,#202a29);--ink:light-dark(#152c2a,#e9f2ec);--muted:light-dark(#546863,#adc0b6);--line:light-dark(#d7dfd8,#40514b);--wash:light-dark(#e7eee7,#304038);--green:light-dark(#07624d,#85daba);--lora:light-dark(#8f551d,#deb57b);--wifi:light-dark(#08694e,#8bd9ae);--lte:light-dark(#365e95,#a2bee7);color:var(--ink);background:var(--paper);font:14px/1.55 "Inter","PingFang SC","Microsoft YaHei",sans-serif;border:1px solid var(--line);border-radius:14px;overflow:hidden;text-align:left;letter-spacing:0}
+#yrt-station *{box-sizing:border-box}#yrt-station [hidden]{display:none!important}
+#yrt-station header,#yrt-station .toolbar,#yrt-station .between,#yrt-station .status,#yrt-station .navrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+#yrt-station header{padding:16px 24px;background:var(--panel)}#yrt-station header strong{font-size:18px}#yrt-station .tag{margin-left:auto;background:var(--wash);color:var(--green);padding:3px 10px;border-radius:20px;font-size:12px}
+#yrt-station .mark{display:inline-flex;gap:3px;align-items:center;justify-content:center;background:#185747;width:32px;height:32px;border-radius:8px}#yrt-station .mark i{width:3px;height:9px;background:#d4eb9c;border-radius:3px;transform:skew(-12deg)}#yrt-station .mark i:nth-child(2){height:19px}#yrt-station .mark i:nth-child(3){height:14px}
+#yrt-station .navrow{gap:20px;padding:0 24px;border-block:1px solid var(--line);background:var(--panel)}
+#yrt-station button,#yrt-station select,#yrt-station input{font:inherit;color:var(--ink);border-radius:7px;border:1px solid var(--line);background:var(--panel);padding:7px 12px;min-width:0;max-width:100%}
+#yrt-station button{cursor:pointer}#yrt-station button:disabled,#yrt-station select:disabled{opacity:.48;cursor:default}
+#yrt-station .navrow button{border:0;border-radius:0;border-bottom:3px solid transparent;padding:10px 0 8px;color:var(--muted);background:transparent}
+#yrt-station .navrow button[aria-pressed=true]{color:var(--green);border-bottom-color:var(--green);font-weight:650}
+#yrt-station main{padding:20px 24px 24px}#yrt-station h2,#yrt-station h3,#yrt-station p{margin:0}
+#yrt-station h2{font-size:23px;font-weight:650;letter-spacing:-.035em}#yrt-station h3{font-size:16px;font-weight:630}
+#yrt-station .between{justify-content:space-between}#yrt-station .sub,#yrt-station small{color:var(--muted);font-size:12px}
+#yrt-station .primary{background:#185747;color:#fff;border-color:#185747;font-weight:600}
+#yrt-station .hero{margin:16px 0 18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;display:grid;grid-template-columns:repeat(3,1fr);padding:14px 0}
+#yrt-station .metric{padding:0 20px;border-right:1px solid var(--line)}#yrt-station .metric:last-child{border:0}
+#yrt-station .num{font:560 27px/1.25 "IBM Plex Mono","SFMono-Regular",Consolas,monospace;letter-spacing:-.045em;display:block;margin-top:5px}
+#yrt-station .links{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:8px 0 18px}
+#yrt-station .link{padding:13px;background:var(--panel);border-top:3px solid var(--channel);border-radius:5px 5px 9px 9px;box-shadow:inset 0 0 0 1px var(--line)}
+#yrt-station .linktop{display:flex;justify-content:space-between;gap:6px;align-items:baseline;flex-wrap:wrap}#yrt-station .linktop strong{font-size:16px}#yrt-station .up{color:var(--green)}#yrt-station .down{color:light-dark(#9f372d,#f3aa98)}
+#yrt-station .endpoint{font-family:"IBM Plex Mono",Consolas,monospace;color:var(--muted);font-size:12px;overflow-wrap:anywhere;padding:4px 0 10px}
+#yrt-station .link button{margin-top:8px;padding:3px 8px;font-size:12px}#yrt-station .dt{font:13px/1.5 "IBM Plex Mono",Consolas,monospace}
+#yrt-station .tablewrap{overflow-x:auto;margin-top:8px}#yrt-station table{border-collapse:collapse;width:100%;text-align:left;white-space:nowrap;font-size:13px;background:var(--panel)}#yrt-station th,#yrt-station td{padding:7px 10px;border-bottom:1px solid var(--line)}#yrt-station th{font-size:12px;color:var(--muted);font-weight:550;background:var(--wash)}
+#yrt-station .section{margin:16px 0 8px}#yrt-station .stack{display:grid;gap:12px}#yrt-station .formgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px}
+#yrt-station label.field{display:grid;gap:4px;color:var(--muted);font-size:13px}#yrt-station .field :is(input,select){width:100%}
+#yrt-station fieldset{min-width:0;border:0;padding:0;margin:0}#yrt-station .checks{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0}#yrt-station .checks label{display:flex;align-items:center;gap:5px}#yrt-station input[type=checkbox]{accent-color:var(--green)}
+#yrt-station .note{color:var(--muted);font-size:12px;margin:8px 0}#yrt-station .buttonrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+@media(max-width:600px){#yrt-station main,#yrt-station header{padding:14px}#yrt-station .navrow{padding:0 14px;gap:16px}#yrt-station .links{grid-template-columns:1fr}#yrt-station .link{padding:10px 12px}#yrt-station .metric{padding:0 8px}#yrt-station .num{font-size:20px}#yrt-station .formgrid{grid-template-columns:1fr}}
+</style>
+<header><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span><strong>多链路地面站</strong><span class="tag">模拟预览</span></header>
+<nav class="navrow" aria-label="地面站功能"><button data-page="live" aria-pressed="true">发送控制台</button><button data-page="replay" aria-pressed="false">实验回放</button><button data-page="config" aria-pressed="false">接口配置</button></nav>
+<main>
+<section data-view="live">
+<div class="between"><div><h2>发送控制台</h2><p class="sub" id="yrt-runid"></p></div><button class="primary" id="yrt-start">开始模拟实验</button></div>
+<div class="hero"><div class="metric"><small>已生成指令</small><b class="num" id="yrt-seq"></b></div><div class="metric"><small>已提交副本 / 计划</small><b class="num" id="yrt-copies"></b></div><div class="metric"><small>发送时长</small><b class="num" id="yrt-time"></b></div></div>
+<div class="between"><h3>三路发送</h3><small id="yrt-rate"></small></div>
+<div class="links" id="yrt-links"></div>
+<div class="between"><h3>最近发送记录</h3><small>Windows 本地提交结果</small></div>
+<div class="tablewrap"><table><thead><tr><th>指令序号</th><th>发送时刻</th><th>LoRa</th><th>Wi-Fi 网桥</th><th>4G</th></tr></thead><tbody id="yrt-tx"></tbody></table></div>
+<p class="note" id="yrt-msg" role="status"></p>
+</section>
+<section data-view="replay" hidden>
+<div class="between"><h2>实验回放</h2><div class="toolbar"><label class="field">已完成的实验<select id="yrt-history"></select></label><button type="button" id="yrt-download">下载数据 · CSV</button></div></div>
+<div id="yrt-export" hidden><p class="note" role="status" id="yrt-exportmsg"></p><details><summary>查看或复制 CSV</summary><textarea id="yrt-csv" aria-label="本轮实验完整 CSV" readonly rows="5" style="width:100%"></textarea><button type="button" id="yrt-selectcsv">全选 CSV</button></details></div>
+<p class="note">用同一份模拟车端记录，勾选参与回放的链路，比较更新空档。</p>
+<fieldset class="checks" id="yrt-mask"><legend class="sub">回放链路</legend><label><input type="checkbox" value="0" checked>LoRa</label><label><input type="checkbox" value="1" checked>Wi-Fi 网桥</label><label><input type="checkbox" value="2" checked>4G</label></fieldset>
+<div class="hero"><div class="metric"><small>采用指令数</small><b class="num" id="yrt-used"></b></div><div class="metric"><small>最长更新空档</small><b class="num" id="yrt-gap"></b></div><div class="metric"><small>三路全开空档</small><b class="num" id="yrt-base"></b></div></div>
+<h3>车端到达顺序</h3><div class="tablewrap"><table><thead><tr><th>指令</th><th>到达时刻</th><th>来源</th><th>车端处理</th></tr></thead><tbody id="yrt-rx"></tbody></table></div><div class="between section"><small id="yrt-rxcount"></small><div class="buttonrow"><button id="yrt-prev">上一页</button><button id="yrt-next">下一页</button></div></div>
+</section>
+<section data-view="config" hidden>
+<h2>接口配置</h2><p class="note">参数用于本页模拟。实验进行中锁定配置。</p>
+<form id="yrt-form"><fieldset id="yrt-fields" class="stack">
+<h3>发送参数</h3><div class="formgrid"><label class="field">指令生成频率<select name="hz"><option value="1">1 Hz</option><option value="2" selected>2 Hz</option><option value="5">5 Hz</option></select></label><label class="field">每轮指令数<input type="number" name="limit" value="30" min="2" max="600" required></label></div>
+<h3>Windows 接口</h3><div class="formgrid"><label class="field">LoRa 串口<input name="port" value="COM16" maxlength="32" required></label><label class="field">LoRa 串口波特率<select name="baud"><option>9600</option><option>19200</option><option>115200</option></select></label><label class="field">网桥对端（RK3588）<input name="bridge" value="192.168.137.246" maxlength="80" required></label><label class="field">ECS 中继地址（示例）<input name="ecs" value="relay.example:14550" maxlength="80" required></label></div>
+<div><button class="primary" type="submit">保存配置</button></div></fieldset><p id="yrt-configmsg" class="note" role="status"></p></form>
+</section></main></div>
+<script>
+(() => {
+  const root = document.getElementById('yrt-station');
+  const el = name => root.querySelector('#yrt-' + name);
+  const pathNames = ['LoRa','Wi-Fi 网桥','4G'];
+  const colors = ['--lora','--wifi','--lte'];
+  const status = [true,true,true];
+  const config = {hz:2,limit:30,port:'COM16',baud:'9600',bridge:'192.168.137.246',ecs:'relay.example:14550'};
+  const form = el('form');
+  let timer = null, start = 0, serial = 0, running = false, page = 0;
+  let selectedPage = 'live';
+  const seconds = ms => (ms/1000).toFixed(2) + ' s';
+  function makeRun(id, hz, endpoints) {
+    return {id, hz, endpoints, frames:[], arrivals:[], duration:0, counts:[0,0,0]};
+  }
+  function endpoints() { return [config.port+' · '+config.baud,config.bridge,config.ecs]; }
+  function packet(run, sentAt, available) {
+    const seq = run.frames.length + 1;
+    run.frames.push({seq,time:sentAt,ok:[...available]});
+    available.forEach((ok,i) => {
+      if (!ok) return;
+      run.counts[i]++;
+      // The saved receiver fixture includes correlated radio losses and variable delays.
+      const phase = (seq - 1) % 20;
+      if ((i===1 && phase>=6 && phase<=12) || (i===2 && phase>=8 && phase<=11) || (i===0 && phase===16)) return;
+      const delay = [670+(seq*139)%510,22+(seq*7)%30,65+(seq*13)%105][i];
+      run.arrivals.push({seq,link:i,time:sentAt+delay});
+    });
+  }
+  const example = makeRun('示例 · 地面短包测试',2,endpoints());
+  for(let n=0;n<24;n++) packet(example,n*500,[true,true,true]);
+  example.duration=12000;
+  let run = example;
+  let history = [example];
+  function cellRow(target, values, header=false) {
+    const tr=document.createElement('tr');
+    values.forEach((value,i) => {
+      const td=document.createElement(header && i===0?'th':'td');
+      td.textContent=value;
+      if(i===0) td.className='dt';
+      tr.append(td);
+    });
+    target.append(tr);
+  }
+  function selectedRun(){return history.find(item=>item.id===el('history').value) || example;}
+  function inspect(data, enabled) {
+    // Include the start boundary and drain late packets through the end of the common observation window.
+    const horizon = data.arrivals.reduce((max,a)=>Math.max(max,a.time),data.duration);
+    const records=data.arrivals.filter(a=>enabled[a.link]).slice().sort((a,b)=>a.time-b.time || a.link-b.link);
+    const seen=new Set();
+    let high=0, last=0, maxGap=0, used=0;
+    const decisions=new Map();
+    const rows=records.map(a=>{
+      let result;
+      if(a.seq>high) {
+        high=a.seq; used++; maxGap=Math.max(maxGap,a.time-last); last=a.time; result='采用';
+      } else result=seen.has(a.seq)?'重复副本':'旧序号';
+      seen.add(a.seq);
+      decisions.set(a,result);
+      return [String(a.seq).padStart(4,'0'),seconds(a.time),pathNames[a.link],result];
+    });
+    return {rows,gap:Math.max(maxGap,horizon-last),used,decisions};
+  }
+  function downloadRun() {
+    const data=selectedRun();
+    const baseline=inspect(data,[true,true,true]);
+    const received=new Map(data.arrivals.map(a=>[a.seq*3+a.link,a]));
+    const rows=[['实验','来源','指令序号','链路','发送时刻_ms','发送结果','接收时刻_ms','三路全开处理结果']];
+    for(const frame of data.frames) {
+      frame.ok.forEach((sent,i)=>{
+        const arrival=received.get(frame.seq*3+i);
+        const result=arrival?baseline.decisions.get(arrival):(sent?'未收到':'未发送');
+        rows.push([data.id,'模拟',frame.seq,pathNames[i],frame.time,sent?'已提交':'接口断开',arrival?.time??'',result]);
+      });
+    }
+    const csv=rows.map(row=>row.map(cell=>'"'+String(cell).replace(/"/g,'""')+'"').join(',')).join('\r\n')+'\r\n';
+    const fileName=data.id+'-三路明细.csv';
+    const url=URL.createObjectURL(new Blob(['\uFEFF',csv],{type:'text/csv;charset=utf-8'}));
+    const link=document.createElement('a');
+    link.href=url;link.download=fileName;root.append(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),30000);
+    el('export').hidden=false;
+    el('exportmsg').textContent='已生成 '+(rows.length-1)+' 条三路明细。若预览未弹出下载，可展开复制 CSV。';
+    el('csv').value=csv;
+  }
+  el('download').onclick=downloadRun;
+  el('selectcsv').onclick=()=>{el('csv').focus();el('csv').select();};
+  function renderReplay() {
+    const data=selectedRun();
+    const res=inspect(data,[...el('mask').querySelectorAll('input')].map(input=>input.checked));
+    el('used').textContent=res.used+' / '+data.frames.length;
+    el('gap').textContent=seconds(res.gap);
+    el('base').textContent=seconds(inspect(data,[true,true,true]).gap);
+    const pages=Math.max(1,Math.ceil(res.rows.length/8));
+    page=Math.min(page,pages-1);
+    const body=el('rx'); body.replaceChildren();
+    res.rows.slice(page*8,page*8+8).forEach(values=>cellRow(body,values));
+    el('rxcount').textContent=res.rows.length?'共 '+res.rows.length+' 份到达记录 · '+(page+1)+' / '+pages+' 页':'当前组合没有到达记录';
+    el('prev').disabled=page===0; el('next').disabled=page>=pages-1;
+  }
+  function setHistory(id) {
+    el('export').hidden=true;
+    el('history').replaceChildren();
+    history.forEach(data=>el('history').add(new Option(data.id,data.id)));
+    el('history').value=id; page=0; renderReplay();
+  }
+  pathNames.forEach((name,i)=>{
+    const card=document.createElement('div'); card.className='link'; card.style.setProperty('--channel','var('+colors[i]+')');
+    card.innerHTML='<div class="linktop"><strong></strong><small class="state"></small></div><div class="endpoint"></div><div class="detail"></div><button></button>';
+    card.querySelector('strong').textContent=name;
+    card.querySelector('button').onclick=()=>{
+      status[i]=!status[i]; renderLive();
+      el('msg').textContent=name+(status[i]?' 模拟接口已恢复。':' 模拟接口已断开。')+(running?'其他链路继续发送。':'下次开始模拟实验时生效。');
+    };
+    el('links').append(card);
+  });
+  function renderLive() {
+    const n=run.frames.length;
+    el('seq').textContent=n;
+    el('copies').textContent=run.counts.reduce((a,b)=>a+b,0)+' / '+n*3;
+    el('time').textContent=seconds(run.duration);
+    el('runid').textContent=run.id+' · '+(running?'发送中':'已完成');
+    el('rate').textContent=(running?run.hz:config.hz)+' Hz · 同包三发'+(running?'':'（下一轮）');
+    el('start').textContent=running?'停止发送':'开始模拟实验';
+    el('fields').disabled=running;
+    const ends=running?run.endpoints:endpoints();
+    [...el('links').children].forEach((card,i)=>{
+      card.querySelector('.endpoint').textContent=ends[i];
+      const badge=card.querySelector('.state');
+      badge.textContent=status[i]?'就绪':'已断开';badge.className='state '+(status[i]?'up':'down');
+      card.querySelector('.detail').textContent='本轮提交 '+run.counts[i]+'　失败 '+(n-run.counts[i]);
+      const btn=card.querySelector('button');
+      btn.textContent=status[i]?'模拟断链':'恢复链路';btn.setAttribute('aria-label',pathNames[i]+btn.textContent);
+    });
+    const body=el('tx');body.replaceChildren();
+    run.frames.slice(-5).reverse().forEach(f=>cellRow(body,[String(f.seq).padStart(4,'0'),seconds(f.time),...f.ok.map(ok=>ok?'已提交':'接口断开')]));
+  }
+  function finish() {
+    running=false;clearInterval(timer);timer=null;
+    run.duration=Math.max(run.duration,Math.round(performance.now()-start));
+    history=[run,...history];
+    setHistory(run.id);
+    el('msg').textContent='本轮已结束。可在「实验回放」查看模拟接收结果。';
+    renderLive();
+  }
+  function tick() {
+    const elapsed=Math.round(performance.now()-start);
+    packet(run,elapsed,status);run.duration=elapsed;
+    if(run.frames.length>=config.limit) finish(); else renderLive();
+  }
+  el('start').onclick=()=>{
+    if(running){finish();return;}
+    serial++;run=makeRun('模拟实验 '+String(serial).padStart(3,'0'),config.hz,endpoints());
+    running=true;start=performance.now();
+    el('msg').textContent='每条指令复制三份；发送端独立记录每路提交结果。';
+    timer=setInterval(tick,1000/config.hz);tick();
+  };
+  function selectPage(name) {
+    if(!['live','replay','config'].includes(name))return;
+    selectedPage=name;
+    root.querySelectorAll('[data-page]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.page===name)));
+    root.querySelectorAll('[data-view]').forEach(p=>p.hidden=p.dataset.view!==name);
+    if(name==='replay')renderReplay();
+  }
+  function remember(){
+    window.openai?.setWidgetState?.({privateContent:{view:selectedPage,hz:config.hz,limit:config.limit}})?.catch(()=>{});
+  }
+  function restore(saved){
+    const state=saved?.privateContent;
+    if(!state || running)return;
+    if([1,2,5].includes(state.hz) && Number.isInteger(state.limit) && state.limit>=2 && state.limit<=600){
+      config.hz=state.hz;config.limit=state.limit;
+      form.elements.hz.value=config.hz;form.elements.limit.value=config.limit;
+    }
+    selectPage(state.view);renderLive();
+  }
+  root.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{selectPage(b.dataset.page);remember();});
+  form.onsubmit=e=>{
+    e.preventDefault();if(running || !form.reportValidity())return;
+    const values=new FormData(form);
+    for(const key of ['port','bridge','ecs'])if(!String(values.get(key)).trim()){el('configmsg').textContent='请填写完整的接口参数。';return;}
+    for(const key of Object.keys(config))config[key]=['hz','limit'].includes(key)?Number(values.get(key)):String(values.get(key)).trim();
+    el('configmsg').textContent='配置已保存，将用于下一轮模拟。';renderLive();remember();
+  };
+  el('mask').onchange=()=>{page=0;renderReplay();};el('history').onchange=()=>{el('export').hidden=true;page=0;renderReplay();};
+  el('prev').onclick=()=>{page--;renderReplay();};el('next').onclick=()=>{page++;renderReplay();};
+  setHistory(example.id);renderLive();restore(window.openai?.widgetState);
+  window.addEventListener('openai:set_globals',e=>restore(e.detail?.globals?.widgetState));
+})();
+</script>
+</body></html>
