@@ -23,6 +23,14 @@
 
 实验开始前逐路核对收包来源。车端接收就绪后，在 Windows 发起新实验，再用底盘自己的遥控器开车。地面端停止发送后给在途副本留出到达时间，随后将车端日志取回 Windows。用实验编号和序号关联日志。精确单向时延需要两端时钟同步，更新空档可直接用 RK3588 的单调时钟计算。
 
+## 室内连通复测（2026-11-20）
+
+- Wi-Fi 网桥用于 SSH 调试。[板端重启后重新登录成功](wifi-bridge-first-test.md#rk3588-开机直连2026-11-20)。
+- LoRa 使用 Windows `COM10` 和 RK3588 的 CH340 串口，参数为 `9600 8N1`，DTR 和 RTS 关闭。车端发送 `YRT-LORA-AIR-1120`，Windows 收到后回复 `YRT-LORA-GCS-1120`，板端收到完整回包。
+- 4G 使用 Windows EC200A 的 RNDIS 网卡和 RK3588 的蜂窝网口，分别连接 ECS 数传端口 `14550` 和 `14551`。起初 EC200A 已注册 LTE，但 `AT+QNETDEVCTL?` 返回 `0,0,0,0`，经 RNDIS 访问公网超时。在 Windows 的 Quectel AT 口 `COM7` 执行一次 `AT+QNETDEVCTL=1,1,1`，收到 `+QNETDEVSTATUS: 1` 后，车端发送 `YRT-4G-AIR-1120`，Windows 回复 `YRT-4G-GCS-1120`，两端均收到完整消息。[移远 EC200A 拨号说明](https://forumschinese.quectel.com/t/topic/11521)
+
+LoRa 和 4G 在同一轮复测中均通过双向短消息检查。三路发送同一序号的指令、合并日志和切换策略仍按下节验收。
+
 ## 回放与验收
 
 1. 先记录静态三路全开。验证同一序号的三份副本都能记录，模拟状态最多更新一次。构造乱序，验证状态不会退回旧序号。
