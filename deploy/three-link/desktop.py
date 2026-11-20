@@ -20,7 +20,12 @@ import serial
 
 
 NAME = {'lora': 'LoRa', 'wifi': 'Wi-Fi 网桥', '4g': '4G'}
-OUTCOME = {'adopted': '采用', 'duplicate': '重复', 'late': '晚到'}
+OUTCOME = {'adopted': '采用', 'duplicate': '延迟', 'late': '晚到'}
+OUTCOME_COLORS = {
+    'adopted': ('#d9f3e4', '#155532'),
+    'duplicate': ('#fff2c2', '#694b00'),
+    'late': ('#fce0e0', '#891e27'),
+}
 SETTINGS = (
     ('serial', 'LoRa 串口'), ('wifi_ip', '电脑网桥 IP'), ('wifi_peer', 'RK3588 网桥 IP'),
     ('wifi_port', '网桥 UDP 端口'), ('ecs', 'ECS IPv4'), ('lte_port', 'ECS 数传端口'),
@@ -149,6 +154,8 @@ class Station:
         ttk.Label(arrivals, text='无线分数按各链路自己的 RSSI 或 RSRP 计算。相对延迟单独记录。').pack(anchor='w', pady=(0, 5))
         self.arrivals_table = self.table(arrivals, ('到达顺序', '指令序号', '链路', '指令值', '车端处理', '延迟差 ms', '无线测量', '质量 0–1'),
                                          (78, 78, 99, 63, 81, 88, 128, 88), 5, scroll=True)
+        for outcome, (background, foreground) in OUTCOME_COLORS.items():
+            self.arrivals_table.tag_configure(outcome, background=background, foreground=foreground)
         replay_scope = ttk.Frame(replay)
         replay_scope.pack(fill='x', pady=(0, 6))
         ttk.Label(replay_scope, text='参与回放').pack(side='left', padx=(0, 8))
@@ -261,8 +268,9 @@ class Station:
             order = row.get('rx_order', 0)
             if order > self.arrival_count:
                 raw, quality = self.signal_values(row.get('radio'))
+                outcome = row['outcome']
                 self.arrivals_table.insert('', 'end', values=(order, row['seq'], NAME[row['link']], row['value'],
-                    OUTCOME[row['outcome']], f"{row['relative_delay_ms']:.1f}", raw, quality))
+                    OUTCOME[outcome], f"{row['relative_delay_ms']:.1f}", raw, quality), tags=(outcome,))
                 self.arrival_count = order
 
     @staticmethod
