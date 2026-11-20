@@ -236,8 +236,9 @@ def sender(link, pending, config, journal, lock):
             conn.close()
 
 
-def transmit(config, hz, seqs, omitted):
-    run = secrets.randbits(64)
+def transmit(config, hz, seqs, omitted, *, run=None, stop=None):
+    run = secrets.randbits(64) if run is None else run
+    stop = stop if stop is not None else threading.Event()
     run_id = f'{run:016x}'
     path = Path(config['logs']) / f'tx-{run_id}.jsonl'
     journal = Journal(path)
@@ -256,10 +257,11 @@ def transmit(config, hz, seqs, omitted):
     print(f'RUN={run_id} LOG={path}', flush=True)
     try:
         publish(0, 0)
-        time.sleep(2)
+        stop.wait(2)
         next_send = time.monotonic()
         for seq in seqs:
-            time.sleep(max(0, next_send - time.monotonic()))
+            if stop.wait(max(0, next_send - time.monotonic())):
+                break
             publish(seq, seq % 201 - 100)
             next_send += 1 / hz
     except KeyboardInterrupt:
@@ -283,19 +285,17 @@ def read_log(path):
                 print(f'Skipping incomplete log record in {path}', flush=True)
 
 
-def report(path, run):
+def summarize(path, run):
     rows = [row for row in read_log(path) if row['run'] == run]
     if not rows:
-        raise SystemExit('Run not found')
+        raise ValueError('Run not found')
     if len({row.get('boot') for row in rows}) > 1:
-        raise SystemExit('Receiver rebooted during this run. Monotonic times cannot be compared across boots.')
+        raise ValueError('Receiver rebooted during this run. Monotonic times cannot be compared across boots.')
     commands = [row for row in rows if 0 < row['seq'] < END]
     first = min(row['mono_ns'] for row in rows)
     last = max(row['mono_ns'] for row in rows)
     complete = any(row['seq'] == 0 for row in rows) and any(row['seq'] == END for row in rows)
-    print('Observation bounds:', 'start and end received' if complete else 'partial reception')
-    print('Received copies:', dict(Counter(row['link'] for row in commands)))
-    print('Receiver outcomes:', dict(Counter(row['outcome'] for row in commands)))
+    comparisons = []
     for excluded in (None,) + LINKS:
         top = 0
         adopted = []
@@ -307,8 +307,21 @@ def report(path, run):
                 sources[row['link']] += 1
         points = [first] + adopted + [last]
         gap_ms = max(b - a for a, b in zip(points, points[1:])) / 1e6
-        print(f"{'without ' + excluded if excluded else 'all links'}: {len(adopted)} updates, "
-              f'longest gap {gap_ms:.1f} ms, adopted by source {dict(sources)}')
+        comparisons.append((excluded, len(adopted), gap_ms, dict(sources)))
+    return complete, Counter(row['link'] for row in commands), Counter(row['outcome'] for row in commands), comparisons
+
+
+def report(path, run):
+    try:
+        complete, links, outcomes, comparisons = summarize(path, run)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    print('Observation bounds:', 'start and end received' if complete else 'partial reception')
+    print('Received copies:', dict(links))
+    print('Receiver outcomes:', dict(outcomes))
+    for excluded, updates, gap_ms, sources in comparisons:
+        print(f"{'without ' + excluded if excluded else 'all links'}: {updates} updates, "
+              f'longest gap {gap_ms:.1f} ms, adopted by source {sources}')
 
 
 def merge(tx_path, rx_path, output):

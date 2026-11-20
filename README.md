@@ -5,7 +5,7 @@
 ## 最新进度与资料索引（2026-11-20）
 
 - 第一阶段采用 [三链路并发数传基线](docs/three-link-baseline.md)。Windows 在 LoRa、Wi-Fi 网桥和 4G 上发送同一编号的模拟指令，RK3588 按递增序号更新状态并记录全部到达副本。底盘由原装遥控器独立驾驶。
-- [三链路真机程序](deploy/three-link/README.md)已部署到 Windows 和 RK3588，支持三路发包、融合记录、回放和 CSV 导出。另有[地面站模拟预览](ground-station/index.html)。
+- [Windows 三链路地面站](deploy/three-link/README.md)提供原生 EXE，支持 4G 拨号、三路真机发包、取回 RK3588 日志、回放和 CSV 导出。另有[地面站模拟预览](ground-station/index.html)。
 - 已采购 WHEELTEC 四轮底盘，正在分析 [RK3588 底盘控制及厂家资料](docs/wheeltec-r680-rk3588-control-2026-11-16.md)；实物型号、接口、固件和停车行为尚待核实。
 - RK3588 Ubuntu 与 Windows 已完成 [LoRa 双向短消息测试](docs/lora-usb-first-test.md)；[Wi-Fi 网桥](docs/wifi-bridge-first-test.md)已完成静态互通测试。
 - 已验证 [RK3588 开机经网桥直连](docs/wifi-bridge-first-test.md#rk3588-开机直连2026-11-20)。Windows 可在网桥配对后直接 SSH 到 `192.168.137.246`。

@@ -1,6 +1,22 @@
 # 三链路室内数传真机部署
 
-Windows 主动发送模拟指令，RK3588 监听并记日志。车轮和转向仍由底盘原装遥控器控制。地面站网页继续用于模拟预览。真机发包、回放和导出由下面的命令运行。
+Windows 主动发送模拟指令，RK3588 监听并记日志。车轮和转向仍由底盘原装遥控器控制。真机发包、取日志、回放和导出可在 Windows 桌面应用里完成。
+
+## Windows 桌面应用
+
+双击 `YRT-ThreeLink-Station.exe`。已部署的电脑使用 `D:\YRT\three-link\windows.json` 和同目录的 `logs`。将单文件 EXE 复制到其他电脑运行时，程序会在 `%LOCALAPPDATA%\YRT\ThreeLink` 保存默认配置和日志，可以在应用的「接口设置」中修改串口、地址和接口索引。
+
+1. RK3588 上电，确认两台网桥已配对。EC200A 重新上电后，可以点击「4G 拨号」，等应用报数据连接已建立。
+2. 勾选要测试的链路，设置条数和频率，点击「开始发包」。需要提前结束时点击「停止发包」，程序会保存日志和结束帧。
+3. 发包结束后点击「从 RK3588 取日志」。Windows OpenSSH 若提示密码，在它打开的终端内输入。也可以选「导入日志」打开已有的 `rx.jsonl`。
+4. 从实验下拉框选实验，查看各链路实际收包数和回放对照，点击「导出 CSV」保存两端合并明细。
+
+在 Windows 上从源码构建单文件应用：
+
+```powershell
+python -m pip install pyserial pyinstaller
+python -m PyInstaller --onefile --windowed --name YRT-ThreeLink-Station --add-data 'windows.json;.' desktop.py
+```
 
 | 路径 | Windows | RK3588 |
 | --- | --- | --- |

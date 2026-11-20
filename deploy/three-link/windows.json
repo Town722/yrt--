@@ -7,5 +7,6 @@
   "lte_port": 14550,
   "lte_interface": 65,
   "lte_ip": "192.168.43.100",
+  "lte_at": "COM7",
   "logs": "logs"
 }
