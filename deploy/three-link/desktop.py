@@ -58,6 +58,7 @@ class Station:
         self.worker = None
         self.stop_signal = threading.Event()
         self.result = None
+        self.clock_sync = None
         self.live_run = ''
         self.live_feed = None
         self.live_rows = []
@@ -151,7 +152,7 @@ class Station:
         arrivals, replay = ttk.Frame(tabs, padding=6), ttk.Frame(tabs, padding=6)
         tabs.add(arrivals, text='接收明细')
         tabs.add(replay, text='回放')
-        ttk.Label(arrivals, text='相对首达差用车端时钟；发送提交→接收差用两端 UTC 时钟，需保持电脑与 RK3588 时间同步。').pack(anchor='w', pady=(0, 5))
+        ttk.Label(arrivals, text='相对首达差由车端单调时钟计算；发送→接收差先经 SSH 校准两端单调时钟，不依赖系统日期。').pack(anchor='w', pady=(0, 5))
         self.arrivals_table = self.table(arrivals, ('到达顺序', '指令序号', '链路', '指令值', '车端处理', '相对首达 ms', '发送提交→接收 ms', '无线测量', '质量 0–1'),
                                          (78, 78, 99, 63, 81, 102, 112, 128, 88), 5, scroll=True)
         for outcome, (background, foreground) in OUTCOME_COLORS.items():
@@ -279,8 +280,17 @@ class Station:
                 raw, quality = self.signal_values(row.get('radio'))
                 outcome = row['outcome']
                 send_delay = row.get('send_to_receive_ms')
-                if row.get('send_time_status') == 'clock_unsynced':
-                    send_delay = '时钟未同步'
+                delay_state = row.get('send_time_status')
+                if delay_state == 'sync_uncertain':
+                    send_delay = f'~{send_delay:.1f}' if send_delay is not None else '校时精度低'
+                elif delay_state == 'sync_check':
+                    send_delay = '校准异常'
+                elif delay_state == 'board_rebooted':
+                    send_delay = '校时后板子重启'
+                elif delay_state == 'sync_failed':
+                    send_delay = '校时失败'
+                elif delay_state == 'missing_sync':
+                    send_delay = '历史记录无校时'
                 elif send_delay is not None:
                     send_delay = f'{send_delay:.1f}'
                 else:
@@ -413,11 +423,14 @@ class Station:
         self.selected.set(self.live_run)
         self.stop_signal.clear()
         self.result = None
+        self.clock_sync = None
         config = dict(self.config, logs=str(self.logs))
 
         def send():
             try:
-                fusion.transmit(config, hz, range(1, count + 1), omitted, run=run, stop=self.stop_signal)
+                self.clock_sync = fusion.synchronize_monotonic_clock(config)
+                fusion.transmit(config, hz, range(1, count + 1), omitted, run=run,
+                                stop=self.stop_signal, clock_sync=self.clock_sync)
                 # Let the LoRa radio deliver its queued end frame before offering the log fetch.
                 if 'lora' not in omitted:
                     time.sleep(2)
@@ -432,7 +445,7 @@ class Station:
         self.dial_button.configure(state='disabled')
         self.stop_button.configure(state='normal')
         self.fetch_button.configure(state='disabled')
-        self.status.set(f'正在发包 · {self.live_run}')
+        self.status.set(f'正在校准 RK3588 单调时钟并发包 · {self.live_run}')
         self.load_runs()
 
     def stop_run(self):
@@ -555,7 +568,15 @@ class Station:
                 self.stop_button.configure(state='disabled')
                 if self.fetch is None:
                     self.fetch_button.configure(state='normal')
-                self.status.set(f'测试失败 · {self.result}' if self.result else f'本轮已保存 · {self.live_run}')
+                if self.result:
+                    message = f'测试失败 · {self.result}'
+                elif self.clock_sync and self.clock_sync.get('status') in ('ok', 'uncertain'):
+                    rtt_ms = self.clock_sync['rtt_ns'] / 1e6
+                    message = f'本轮已保存 · {self.live_run} · 单调时钟校准 RTT {rtt_ms:.1f} ms'
+                else:
+                    error = (self.clock_sync or {}).get('error', 'SSH 校准不可用')
+                    message = f'本轮已保存 · {self.live_run} · {error}'
+                self.status.set(message)
                 self.load_runs()
                 if self.fetch is None and not self.result:
                     self.fetch_log(automatic=True)

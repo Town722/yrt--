@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import queue
 import re
+import shutil
 import socket
 import struct
 import subprocess
@@ -36,7 +37,7 @@ SIZE = BODY.size + CRC.size
 END = 0xffffffff
 RADIO_ANCHORS = {'lora': (-125, -75), 'wifi': (-85, -55), '4g': (-110, -80)}
 RADIO_SAMPLE_MAX_AGE_NS = 6_000_000_000
-SEND_DELAY_SANITY_NS = 86_400_000_000_000
+CLOCK_SYNC_MAX_RTT_NS = 250_000_000
 BRIDGE_STATUS_PATH = '/Main_WStatus_Content.asp'
 
 
@@ -266,7 +267,7 @@ class Receiver:
             else:
                 result = 'duplicate' if seq == top else 'late'
             self.journal.write(run=run, seq=seq, value=value, link=link, outcome=result,
-                               mono_ns=now, utc_ns=time.time_ns(), boot=self.boot, radio=signal)
+                               mono_ns=now, rx_mono_ns=now, utc_ns=time.time_ns(), boot=self.boot, radio=signal)
 
     def wifi(self):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as conn:
@@ -381,7 +382,82 @@ def open_sender(link, config):
         raise
 
 
-def sender(link, pending, config, journal, lock):
+def synchronize_monotonic_clock(config, *, samples=3):
+    """Estimate board-minus-PC monotonic offset over SSH; wall clocks are irrelevant."""
+    ssh = shutil.which('ssh.exe') or shutil.which('ssh')
+    if not ssh:
+        return {'status': 'failed', 'error': '未找到 OpenSSH'}
+    destination = f"ztl@{config['wifi_peer']}"
+    remote = r'''python3 -u -c 'import json,sys,time; boot=open("/proc/sys/kernel/random/boot_id").read().strip(); exec("for _ in sys.stdin:\n t2=time.monotonic_ns(); t3=time.monotonic_ns(); print(json.dumps({\"t2\":t2,\"t3\":t3,\"boot\":boot}),flush=True)")' '''.strip()
+    observations = []
+    output = queue.Queue()
+    try:
+        process = subprocess.Popen(
+            [ssh, '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=4', destination, remote],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, encoding='utf-8', errors='replace', bufsize=1,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+    except OSError as exc:
+        return {'status': 'failed', 'error': f'无法启动 SSH 校时 · {exc}'}
+
+    def collect():
+        if process.stdout is not None:
+            for line in process.stdout:
+                output.put(line)
+
+    threading.Thread(target=collect, daemon=True).start()
+    try:
+        for _ in range(samples + 2):
+            before = time.perf_counter_ns()
+            try:
+                process.stdin.write('sync\n')
+                process.stdin.flush()
+                deadline = time.monotonic() + 2
+                payload = None
+                while time.monotonic() < deadline:
+                    try:
+                        line = output.get(timeout=max(0.01, deadline - time.monotonic()))
+                    except queue.Empty:
+                        break
+                    try:
+                        payload = json.loads(line)
+                        if {'t2', 't3', 'boot'} <= payload.keys():
+                            break
+                    except (json.JSONDecodeError, AttributeError):
+                        payload = None
+                after = time.perf_counter_ns()
+                if not payload or not {'t2', 't3', 'boot'} <= payload.keys():
+                    continue
+                t2, t3 = int(payload['t2']), int(payload['t3'])
+                rtt = after - before
+                offset = ((t2 - before) + (t3 - after)) // 2
+                observations.append({'offset_ns': offset, 'rtt_ns': rtt, 'boot': str(payload['boot'])})
+            except (OSError, ValueError):
+                break
+    finally:
+        if process.stdin is not None:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            process.wait(timeout=1)
+    if not observations:
+        return {'status': 'failed', 'error': 'SSH 时钟校准失败，请检查免密 SSH 和网桥连接。'}
+    best = min(observations, key=lambda sample: sample['rtt_ns'])
+    return {
+        'status': 'ok' if best['rtt_ns'] <= CLOCK_SYNC_MAX_RTT_NS else 'uncertain',
+        'offset_ns': best['offset_ns'],
+        'rtt_ns': best['rtt_ns'],
+        'boot': best['boot'],
+        'samples': len(observations),
+    }
+
+
+def sender(link, pending, config, journal, lock, clock_sync):
     conn = None
     try:
         while True:
@@ -390,6 +466,7 @@ def sender(link, pending, config, journal, lock):
                 return
             run_id, seq, value, frame, deadline = item
             started = time.monotonic_ns()
+            tx_send_mono_ns = None
             tx_utc_ns = None
             error = None
             try:
@@ -399,6 +476,7 @@ def sender(link, pending, config, journal, lock):
                     conn = open_sender(link, config)
                 if time.monotonic() >= deadline:
                     raise OSError('Interface became available after the deadline')
+                tx_send_mono_ns = time.perf_counter_ns()
                 tx_utc_ns = time.time_ns()
                 if link == 'lora':
                     if conn.write(frame) != len(frame):
@@ -413,13 +491,19 @@ def sender(link, pending, config, journal, lock):
             with lock:
                 journal.write(run=run_id, seq=seq, value=value, link=link, outcome='failed' if error else 'submitted',
                               started_ns=started, mono_ns=time.monotonic_ns(), utc_ns=time.time_ns(),
-                              tx_utc_ns=tx_utc_ns, error=error)
+                              tx_send_mono_ns=tx_send_mono_ns, tx_utc_ns=tx_utc_ns,
+                              clock_sync_status=clock_sync.get('status', 'failed'),
+                              clock_offset_ns=clock_sync.get('offset_ns'),
+                              clock_sync_rtt_ns=clock_sync.get('rtt_ns'),
+                              clock_sync_boot=clock_sync.get('boot'), error=error)
     finally:
         if conn is not None:
             conn.close()
 
 
-def transmit(config, hz, seqs, omitted, *, run=None, stop=None):
+def transmit(config, hz, seqs, omitted, *, run=None, stop=None, clock_sync=None):
+    if clock_sync is None:
+        clock_sync = synchronize_monotonic_clock(config) if os.name == 'nt' else {'status': 'failed'}
     run = reserve_run(config['logs']) if run is None else run
     stop = stop if stop is not None else threading.Event()
     run_id = format_run(run)
@@ -427,7 +511,7 @@ def transmit(config, hz, seqs, omitted, *, run=None, stop=None):
     journal = Journal(path)
     lock = threading.Lock()
     queues = {link: queue.Queue() for link in LINKS if link not in omitted}
-    workers = [threading.Thread(target=sender, args=(link, pending, config, journal, lock))
+    workers = [threading.Thread(target=sender, args=(link, pending, config, journal, lock, clock_sync))
                for link, pending in queues.items()]
     for worker in workers:
         worker.start()
@@ -457,6 +541,7 @@ def transmit(config, hz, seqs, omitted, *, run=None, stop=None):
         for worker in workers:
             worker.join()
         journal.file.close()
+    return clock_sync
 
 
 def read_log(path):
@@ -469,44 +554,55 @@ def read_log(path):
 
 
 def arrival_details(rows, tx_rows=()):
-    """Enrich receiver rows with relative order and sender-to-receiver wall time."""
+    """Join same-run monotonic timestamps using the per-run SSH clock calibration."""
     experiment_start = {}
     first_copy = {}
-    pending_tx_times = defaultdict(deque)
+    pending_tx = defaultdict(deque)
     for tx in tx_rows:
-        tx_time = tx.get('tx_utc_ns', tx.get('utc_ns'))
-        if tx.get('outcome') == 'submitted' and isinstance(tx_time, int):
-            pending_tx_times[tx['run'], tx['seq'], tx['link']].append(tx_time)
+        if tx.get('outcome') == 'submitted':
+            pending_tx[tx['run'], tx['seq'], tx['link']].append(tx)
     order = 0
     for row in rows:
-        sent_utc_ns = None
-        copies = pending_tx_times[row['run'], row['seq'], row['link']]
+        tx = None
+        copies = pending_tx[row['run'], row['seq'], row['link']]
         if copies:
-            sent_utc_ns = copies.popleft()
-        received_utc_ns = row.get('utc_ns')
-        raw_send_delay_ms = None
+            tx = copies.popleft()
+        sent_mono_ns = tx.get('tx_send_mono_ns') if tx else None
+        received_mono_ns = row.get('rx_mono_ns', row.get('mono_ns'))
+        offset_ns = tx.get('clock_offset_ns') if tx else None
+        sync_rtt_ns = tx.get('clock_sync_rtt_ns') if tx else None
         send_delay_ms = None
-        send_time_status = 'missing'
-        if isinstance(sent_utc_ns, int) and isinstance(received_utc_ns, int):
-            raw_send_delay_ms = (received_utc_ns - sent_utc_ns) / 1e6
-            if abs(received_utc_ns - sent_utc_ns) <= SEND_DELAY_SANITY_NS:
-                send_delay_ms = raw_send_delay_ms
-                send_time_status = 'ok'
+        send_time_status = 'missing_tx' if tx is None else 'missing_sync'
+        sync_status = tx.get('clock_sync_status') if tx else None
+        if sync_status in ('ok', 'uncertain') and isinstance(sent_mono_ns, int) and isinstance(offset_ns, int) and isinstance(received_mono_ns, int):
+            if tx.get('clock_sync_boot') and row.get('boot') != tx['clock_sync_boot']:
+                send_time_status = 'board_rebooted'
             else:
-                send_time_status = 'clock_unsynced'
+                send_delay_ns = received_mono_ns - sent_mono_ns - offset_ns
+                send_delay_ms = send_delay_ns / 1e6
+                if sync_status == 'uncertain':
+                    send_time_status = 'sync_uncertain'
+                elif send_delay_ns < -(sync_rtt_ns or 0):
+                    send_time_status = 'sync_check'
+                else:
+                    send_time_status = 'ok'
+        elif sync_status == 'failed':
+            send_time_status = 'sync_failed'
         if not 0 < row['seq'] < END:
-            yield dict(row, tx_utc_ns=sent_utc_ns, send_to_receive_ms=send_delay_ms,
-                       send_to_receive_raw_ms=raw_send_delay_ms, send_time_status=send_time_status)
+            yield dict(row, tx_mono_ns=sent_mono_ns, clock_offset_ns=offset_ns,
+                       clock_sync_rtt_ns=sync_rtt_ns, send_to_receive_ms=send_delay_ms,
+                       send_time_status=send_time_status)
             continue
         order += 1
-        clock = row['mono_ns']
+        clock = received_mono_ns
         boot = row.get('boot')
         start = experiment_start.setdefault(boot, clock)
         first = first_copy.setdefault((boot, row['seq']), clock)
         delay_ms = (clock - first) / 1e6
-        yield dict(row, rx_order=order, rx_elapsed_ms=(clock - start) / 1e6, relative_delay_ms=delay_ms,
-                   tx_utc_ns=sent_utc_ns, send_to_receive_ms=send_delay_ms,
-                   send_to_receive_raw_ms=raw_send_delay_ms, send_time_status=send_time_status)
+        yield dict(row, rx_order=order, rx_mono_ns=clock, rx_elapsed_ms=(clock - start) / 1e6,
+                   relative_delay_ms=delay_ms, tx_mono_ns=sent_mono_ns, clock_offset_ns=offset_ns,
+                   clock_sync_rtt_ns=sync_rtt_ns, send_to_receive_ms=send_delay_ms,
+                   send_time_status=send_time_status)
 
 
 def summarize(path, run, omitted=()):
@@ -563,8 +659,10 @@ def merge(tx_path, rx_path, output):
         return (run, row['seq'], row['link'], row['value'], tx.get('outcome'), tx.get('mono_ns'),
                 tx.get('error'), rx.get('outcome'), rx.get('mono_ns'), rx.get('boot'),
                 rx.get('rx_order'), rx.get('rx_elapsed_ms'), rx.get('relative_delay_ms'),
-                tx.get('tx_utc_ns', tx.get('utc_ns')), rx.get('utc_ns'), rx.get('send_to_receive_ms'),
-                rx.get('send_to_receive_raw_ms'), rx.get('send_time_status'), signal.get('metric'),
+                tx.get('tx_utc_ns', tx.get('utc_ns')), rx.get('utc_ns'),
+                tx.get('tx_send_mono_ns'),
+                rx.get('clock_offset_ns'), rx.get('clock_sync_rtt_ns'), rx.get('send_to_receive_ms'),
+                rx.get('send_time_status'), signal.get('metric'),
                 signal.get('dbm'), signal.get('rsrq_db'), signal.get('age_ms'), signal.get('weak_dbm'),
                 signal.get('strong_dbm'), signal.get('quality_0_1'))
 
@@ -572,8 +670,9 @@ def merge(tx_path, rx_path, output):
         writer = csv.writer(file)
         writer.writerow(('run', 'seq', 'link', 'value', 'tx_result', 'tx_mono_ns', 'tx_error',
                          'rx_result', 'rx_mono_ns', 'rx_boot', 'rx_order', 'rx_elapsed_ms', 'relative_delay_ms',
-                         'tx_utc_ns', 'rx_utc_ns', 'send_to_receive_ms', 'send_to_receive_raw_ms',
-                         'send_time_status', 'rf_metric', 'rf_dbm', 'rf_rsrq_db', 'rf_sample_age_ms', 'rf_weak_dbm',
+                         'tx_utc_ns', 'rx_utc_ns', 'tx_send_mono_ns', 'clock_offset_ns',
+                         'clock_sync_rtt_ns', 'send_to_receive_ms', 'send_time_status',
+                         'rf_metric', 'rf_dbm', 'rf_rsrq_db', 'rf_sample_age_ms', 'rf_weak_dbm',
                          'rf_strong_dbm', 'rf_quality_0_1'))
         for rx in received:
             copies = pending[rx['seq'], rx['link']]
