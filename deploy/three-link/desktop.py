@@ -202,8 +202,15 @@ class Station:
 
     def update_routes(self):
         cfg = self.config
-        self.route_text.set(f"{cfg['serial']} · 9600    |    {cfg['wifi_peer']}:{cfg['wifi_port']} / UDP"
-                            f"    |    {cfg['ecs']}:{cfg['lte_port']} / TCP，接口 {cfg['lte_interface']}")
+        ports = fusion.list_ports.comports() if cfg.get('serial_auto', True) else ()
+        detected = []
+        for role in ('lora', '4g'):
+            try:
+                detected.append(fusion.windows_serial_port(cfg, role, ports))
+            except OSError:
+                detected.append('未识别')
+        self.route_text.set(f"LoRa {detected[0]} · 4G AT {detected[1]}    |    {cfg['wifi_peer']}:{cfg['wifi_port']} / UDP"
+                            f"    |    {cfg['ecs']}:{cfg['lte_port']} / TCP")
 
     def render_tx(self):
         counts = Counter()
@@ -345,9 +352,13 @@ class Station:
             ttk.Label(dialog, text=label).grid(row=i, column=0, sticky='w', pady=3, padx=(0, 10))
             fields[key] = tk.StringVar(dialog, str(self.config[key]))
             ttk.Entry(dialog, textvariable=fields[key], width=24).grid(row=i, column=1, pady=3)
+        auto = tk.BooleanVar(dialog, value=self.config.get('serial_auto', True))
+        ttk.Checkbutton(dialog, text='自动识别 LoRa 和 4G 串口', variable=auto).grid(
+            row=len(fields), column=0, columnspan=2, sticky='w', pady=(6, 0))
 
         def save():
             updated = dict(self.config, **{key: value.get().strip() for key, value in fields.items()})
+            updated['serial_auto'] = auto.get()
             try:
                 for key in ('wifi_ip', 'wifi_peer', 'ecs', 'lte_ip'):
                     ipaddress.IPv4Address(updated[key])
@@ -355,8 +366,9 @@ class Station:
                     updated[key] = int(updated[key])
                     if not 1 <= updated[key] <= 65535:
                         raise ValueError('端口或接口索引超出范围。')
-                if not updated['serial'] or not updated['lte_at'] or updated['serial'].upper() == updated['lte_at'].upper():
-                    raise ValueError('请为 LoRa 和 EC200A 填入各自的串口。')
+                if not auto.get():
+                    if not updated['serial'] or not updated['lte_at'] or updated['serial'].upper() == updated['lte_at'].upper():
+                        raise ValueError('请为 LoRa 和 EC200A 填入各自的串口。')
                 self.settings.write_text(json.dumps(updated, indent=2) + '\n', encoding='utf-8')
             except (OSError, ValueError) as error:
                 messagebox.showerror('保存设置失败', str(error), parent=dialog)
@@ -365,7 +377,7 @@ class Station:
             self.update_routes()
             dialog.destroy()
 
-        ttk.Button(dialog, text='保存', style='Primary.TButton', command=save).grid(row=len(fields), column=1, sticky='e', pady=(10, 0))
+        ttk.Button(dialog, text='保存', style='Primary.TButton', command=save).grid(row=len(fields) + 1, column=1, sticky='e', pady=(10, 0))
 
     def start_run(self):
         if self.worker is not None or self.dial_worker is not None:
@@ -381,6 +393,7 @@ class Station:
         if len(omitted) == len(fusion.LINKS):
             self.status.set('请至少选择一条链路。')
             return
+        self.update_routes()
         try:
             run = fusion.reserve_run(self.logs)
         except OSError as error:
@@ -419,7 +432,12 @@ class Station:
         self.status.set('已停止生成新指令，正在保存本轮日志。')
 
     def dial_modem(self):
-        port = self.config['lte_at']
+        self.update_routes()
+        try:
+            port = fusion.windows_serial_port(self.config, '4g')
+        except OSError as error:
+            self.status.set(str(error))
+            return
 
         def dial():
             try:

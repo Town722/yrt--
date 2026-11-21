@@ -1,5 +1,6 @@
 {
   "serial": "COM10",
+  "serial_auto": true,
   "wifi_ip": "192.168.137.10",
   "wifi_peer": "192.168.137.246",
   "wifi_port": 14552,

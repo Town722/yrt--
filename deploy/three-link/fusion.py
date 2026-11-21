@@ -23,6 +23,7 @@ import time
 import zlib
 
 import serial
+from serial.tools import list_ports
 
 
 LINKS = ('lora', 'wifi', '4g')
@@ -164,6 +165,23 @@ class Journal:
 
     def write(self, **fields):
         self.file.write(json.dumps(fields, separators=(',', ':')) + '\n')
+
+
+def windows_serial_port(config, role, ports=None):
+    key, label = ('serial', 'LoRa') if role == 'lora' else ('lte_at', '移远 4G AT')
+    if not config.get('serial_auto', True):
+        return config[key]
+    devices = list_ports.comports() if ports is None else ports
+    if role == 'lora':
+        matches = [port.device for port in devices if (port.vid, port.pid) == (0x1a86, 0x7523)]
+    else:
+        matches = [port.device for port in devices if port.vid == 0x2c7c and
+                   re.search(r'\bAT(?:\s+command)?\s+port\b', port.description or '', re.I)]
+    if len(matches) == 1:
+        return matches[0]
+    if matches:
+        raise OSError(f'{label} 检测到多个候选串口（{", ".join(sorted(matches))}），请在接口设置中手动指定。')
+    raise OSError(f'未检测到 {label} 串口，请检查 USB 连接和设备驱动。')
 
 
 def open_serial(port):
@@ -328,7 +346,8 @@ class Receiver:
 
 def open_sender(link, config):
     if link == 'lora':
-        return open_serial(config['serial'])
+        port = windows_serial_port(config, 'lora') if os.name == 'nt' else config['serial']
+        return open_serial(port)
     if link == '4g':
         return connect_lte(config['ecs'], config['lte_port'], config['lte_interface'], config['lte_ip'])
     conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
