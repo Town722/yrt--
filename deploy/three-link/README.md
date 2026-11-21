@@ -34,7 +34,7 @@ python -m PyInstaller --onefile --windowed --name YRT-ThreeLink-Station --add-da
 
 ## 安装接收服务
 
-将此目录复制到 RK3588，确认已安装 `python3-serial`。首次安装前检查 `receive.json` 中的串口和接口名，有变动时用 `ls -l /dev/serial/by-id/` 和 `ip -br -4 addr` 核对。
+将此目录复制到 RK3588，确认已安装 `python3-serial`。首次安装前检查 `receive.json` 中的串口和接口名，有变动时用 `ls -l /dev/serial/by-id/` 和 `ip -br -4 addr` 核对。HD-M805 模式 0 不追加 RSSI 字节，`lora_rssi_suffix` 应设为 `false`；模式 1 实际追加 RSSI 字节时才设为 `true`。模式 0 下若仍按有 RSSI 尾字节解析，接收器会等串口 200 ms 读超时才交付完整帧。
 
 ```bash
 sudo sh install-receiver.sh

@@ -3,6 +3,7 @@
   "wifi_ip": "192.168.137.246",
   "wifi_peer": "192.168.137.10",
   "wifi_port": 14552,
+  "lora_rssi_suffix": false,
   "ecs": "39.106.205.239",
   "lte_port": 14551,
   "lte_interface": "wwxb6a4cc2d91d4",

@@ -280,7 +280,7 @@ class Receiver:
     def lora(self):
         with open_serial(self.config['serial']) as conn:
             print('lora: listening', flush=True)
-            stream = FrameStream(radio_trailer=self.config.get('lora_rssi_suffix', True))
+            stream = FrameStream(radio_trailer=self.config.get('lora_rssi_suffix', False))
             while True:
                 chunk = conn.read(conn.in_waiting or 1)
                 for frame in stream.feed(chunk, idle=not chunk):
