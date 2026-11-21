@@ -151,9 +151,9 @@ class Station:
         arrivals, replay = ttk.Frame(tabs, padding=6), ttk.Frame(tabs, padding=6)
         tabs.add(arrivals, text='接收明细')
         tabs.add(replay, text='回放')
-        ttk.Label(arrivals, text='无线分数按各链路自己的 RSSI 或 RSRP 计算。相对延迟单独记录。').pack(anchor='w', pady=(0, 5))
-        self.arrivals_table = self.table(arrivals, ('到达顺序', '指令序号', '链路', '指令值', '车端处理', '延迟差 ms', '无线测量', '质量 0–1'),
-                                         (78, 78, 99, 63, 81, 88, 128, 88), 5, scroll=True)
+        ttk.Label(arrivals, text='相对首达差用车端时钟；发送提交→接收差用两端 UTC 时钟，需保持电脑与 RK3588 时间同步。').pack(anchor='w', pady=(0, 5))
+        self.arrivals_table = self.table(arrivals, ('到达顺序', '指令序号', '链路', '指令值', '车端处理', '相对首达 ms', '发送提交→接收 ms', '无线测量', '质量 0–1'),
+                                         (78, 78, 99, 63, 81, 102, 112, 128, 88), 5, scroll=True)
         for outcome, (background, foreground) in OUTCOME_COLORS.items():
             self.arrivals_table.tag_configure(outcome, background=background, foreground=foreground)
         replay_scope = ttk.Frame(replay)
@@ -254,6 +254,8 @@ class Station:
             self.fill(self.replay_table, [(scope, updates, f'{gap:.1f} ms', by_source or '—')])
 
     def render_arrivals(self, rows, source):
+        tx_path = self.tx_path()
+        tx_rows = list(fusion.read_log(tx_path)) if tx_path.is_file() else []
         latest = {}
         for row in rows:
             if row.get('radio'):
@@ -271,13 +273,20 @@ class Station:
             self.fill(self.arrivals_table, [])
             self.arrival_view = source
             self.arrival_count = 0
-        for row in fusion.arrival_details(rows):
+        for row in fusion.arrival_details(rows, tx_rows):
             order = row.get('rx_order', 0)
             if order > self.arrival_count:
                 raw, quality = self.signal_values(row.get('radio'))
                 outcome = row['outcome']
+                send_delay = row.get('send_to_receive_ms')
+                if row.get('send_time_status') == 'clock_unsynced':
+                    send_delay = '时钟未同步'
+                elif send_delay is not None:
+                    send_delay = f'{send_delay:.1f}'
+                else:
+                    send_delay = '—'
                 self.arrivals_table.insert('', 'end', values=(order, row['seq'], NAME[row['link']], row['value'],
-                    OUTCOME[outcome], f"{row['relative_delay_ms']:.1f}", raw, quality), tags=(outcome,))
+                    OUTCOME[outcome], f"{row['relative_delay_ms']:.1f}", send_delay, raw, quality), tags=(outcome,))
                 self.arrival_count = order
 
     @staticmethod

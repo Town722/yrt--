@@ -36,6 +36,7 @@ SIZE = BODY.size + CRC.size
 END = 0xffffffff
 RADIO_ANCHORS = {'lora': (-125, -75), 'wifi': (-85, -55), '4g': (-110, -80)}
 RADIO_SAMPLE_MAX_AGE_NS = 6_000_000_000
+SEND_DELAY_SANITY_NS = 86_400_000_000_000
 BRIDGE_STATUS_PATH = '/Main_WStatus_Content.asp'
 
 
@@ -389,6 +390,7 @@ def sender(link, pending, config, journal, lock):
                 return
             run_id, seq, value, frame, deadline = item
             started = time.monotonic_ns()
+            tx_utc_ns = None
             error = None
             try:
                 if time.monotonic() >= deadline:
@@ -397,6 +399,7 @@ def sender(link, pending, config, journal, lock):
                     conn = open_sender(link, config)
                 if time.monotonic() >= deadline:
                     raise OSError('Interface became available after the deadline')
+                tx_utc_ns = time.time_ns()
                 if link == 'lora':
                     if conn.write(frame) != len(frame):
                         raise OSError('Incomplete serial write')
@@ -409,7 +412,8 @@ def sender(link, pending, config, journal, lock):
                     conn = None
             with lock:
                 journal.write(run=run_id, seq=seq, value=value, link=link, outcome='failed' if error else 'submitted',
-                              started_ns=started, mono_ns=time.monotonic_ns(), utc_ns=time.time_ns(), error=error)
+                              started_ns=started, mono_ns=time.monotonic_ns(), utc_ns=time.time_ns(),
+                              tx_utc_ns=tx_utc_ns, error=error)
     finally:
         if conn is not None:
             conn.close()
@@ -464,14 +468,35 @@ def read_log(path):
                 print(f'Skipping incomplete log record in {path}', flush=True)
 
 
-def arrival_details(rows):
-    """Enrich the receiver's append order using its own monotonic clock."""
+def arrival_details(rows, tx_rows=()):
+    """Enrich receiver rows with relative order and sender-to-receiver wall time."""
     experiment_start = {}
     first_copy = {}
+    pending_tx_times = defaultdict(deque)
+    for tx in tx_rows:
+        tx_time = tx.get('tx_utc_ns', tx.get('utc_ns'))
+        if tx.get('outcome') == 'submitted' and isinstance(tx_time, int):
+            pending_tx_times[tx['run'], tx['seq'], tx['link']].append(tx_time)
     order = 0
     for row in rows:
+        sent_utc_ns = None
+        copies = pending_tx_times[row['run'], row['seq'], row['link']]
+        if copies:
+            sent_utc_ns = copies.popleft()
+        received_utc_ns = row.get('utc_ns')
+        raw_send_delay_ms = None
+        send_delay_ms = None
+        send_time_status = 'missing'
+        if isinstance(sent_utc_ns, int) and isinstance(received_utc_ns, int):
+            raw_send_delay_ms = (received_utc_ns - sent_utc_ns) / 1e6
+            if abs(received_utc_ns - sent_utc_ns) <= SEND_DELAY_SANITY_NS:
+                send_delay_ms = raw_send_delay_ms
+                send_time_status = 'ok'
+            else:
+                send_time_status = 'clock_unsynced'
         if not 0 < row['seq'] < END:
-            yield row
+            yield dict(row, tx_utc_ns=sent_utc_ns, send_to_receive_ms=send_delay_ms,
+                       send_to_receive_raw_ms=raw_send_delay_ms, send_time_status=send_time_status)
             continue
         order += 1
         clock = row['mono_ns']
@@ -479,7 +504,9 @@ def arrival_details(rows):
         start = experiment_start.setdefault(boot, clock)
         first = first_copy.setdefault((boot, row['seq']), clock)
         delay_ms = (clock - first) / 1e6
-        yield dict(row, rx_order=order, rx_elapsed_ms=(clock - start) / 1e6, relative_delay_ms=delay_ms)
+        yield dict(row, rx_order=order, rx_elapsed_ms=(clock - start) / 1e6, relative_delay_ms=delay_ms,
+                   tx_utc_ns=sent_utc_ns, send_to_receive_ms=send_delay_ms,
+                   send_to_receive_raw_ms=raw_send_delay_ms, send_time_status=send_time_status)
 
 
 def summarize(path, run, omitted=()):
@@ -528,14 +555,16 @@ def merge(tx_path, rx_path, output):
         if row['outcome'] == 'submitted':
             pending[row['seq'], row['link']].append(index)
     matched = set()
-    received = arrival_details(row for row in read_log(rx_path) if row['run'] == run)
+    received = arrival_details((row for row in read_log(rx_path) if row['run'] == run), sent)
 
     def merge_row(tx, rx):
         row = tx or rx
         signal = rx.get('radio') or {}
         return (run, row['seq'], row['link'], row['value'], tx.get('outcome'), tx.get('mono_ns'),
                 tx.get('error'), rx.get('outcome'), rx.get('mono_ns'), rx.get('boot'),
-                rx.get('rx_order'), rx.get('rx_elapsed_ms'), rx.get('relative_delay_ms'), signal.get('metric'),
+                rx.get('rx_order'), rx.get('rx_elapsed_ms'), rx.get('relative_delay_ms'),
+                tx.get('tx_utc_ns', tx.get('utc_ns')), rx.get('utc_ns'), rx.get('send_to_receive_ms'),
+                rx.get('send_to_receive_raw_ms'), rx.get('send_time_status'), signal.get('metric'),
                 signal.get('dbm'), signal.get('rsrq_db'), signal.get('age_ms'), signal.get('weak_dbm'),
                 signal.get('strong_dbm'), signal.get('quality_0_1'))
 
@@ -543,7 +572,8 @@ def merge(tx_path, rx_path, output):
         writer = csv.writer(file)
         writer.writerow(('run', 'seq', 'link', 'value', 'tx_result', 'tx_mono_ns', 'tx_error',
                          'rx_result', 'rx_mono_ns', 'rx_boot', 'rx_order', 'rx_elapsed_ms', 'relative_delay_ms',
-                         'rf_metric', 'rf_dbm', 'rf_rsrq_db', 'rf_sample_age_ms', 'rf_weak_dbm',
+                         'tx_utc_ns', 'rx_utc_ns', 'send_to_receive_ms', 'send_to_receive_raw_ms',
+                         'send_time_status', 'rf_metric', 'rf_dbm', 'rf_rsrq_db', 'rf_sample_age_ms', 'rf_weak_dbm',
                          'rf_strong_dbm', 'rf_quality_0_1'))
         for rx in received:
             copies = pending[rx['seq'], rx['link']]
