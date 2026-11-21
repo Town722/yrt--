@@ -29,7 +29,7 @@ OUTCOME_COLORS = {
 SETTINGS = (
     ('serial', 'LoRa 串口'), ('wifi_ip', '电脑网桥 IP'), ('wifi_peer', 'RK3588 网桥 IP'),
     ('wifi_port', '网桥 UDP 端口'), ('ecs', 'ECS IPv4'), ('lte_port', 'ECS 数传端口'),
-    ('lte_interface', 'Windows 4G 接口索引'), ('lte_ip', 'Windows 4G 网卡 IP'),
+    ('lte_ip', 'Windows 4G 网卡 IP（用于自动识别接口）'),
     ('lte_at', 'EC200A AT 串口'),
 )
 
@@ -362,10 +362,10 @@ class Station:
             try:
                 for key in ('wifi_ip', 'wifi_peer', 'ecs', 'lte_ip'):
                     ipaddress.IPv4Address(updated[key])
-                for key in ('wifi_port', 'lte_port', 'lte_interface'):
+                for key in ('wifi_port', 'lte_port'):
                     updated[key] = int(updated[key])
                     if not 1 <= updated[key] <= 65535:
-                        raise ValueError('端口或接口索引超出范围。')
+                        raise ValueError('端口超出范围。')
                 if not auto.get():
                     if not updated['serial'] or not updated['lte_at'] or updated['serial'].upper() == updated['lte_at'].upper():
                         raise ValueError('请为 LoRa 和 EC200A 填入各自的串口。')

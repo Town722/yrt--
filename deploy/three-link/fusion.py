@@ -9,6 +9,7 @@ import csv
 from datetime import datetime
 import glob
 import http.client
+import ipaddress
 import json
 import math
 import os
@@ -192,9 +193,26 @@ def open_serial(port):
     return line
 
 
+def windows_interface_index(source):
+    source = str(ipaddress.IPv4Address(source))
+    script = ("$a=@(Get-NetIPAddress -AddressFamily IPv4 -IPAddress '" + source +
+              "' -ErrorAction Stop | Select-Object -ExpandProperty InterfaceIndex -Unique); "
+              "if ($a.Count -ne 1) { exit 2 }; [Console]::Out.Write([string]$a[0])")
+    result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
+                            capture_output=True, text=True, timeout=3)
+    if result.returncode:
+        raise OSError(f'未能通过 4G 网卡 IP {source} 唯一确定 Windows 接口索引。')
+    try:
+        return int(result.stdout.strip())
+    except ValueError as error:
+        raise OSError(f'Windows 返回了无效的网卡索引：{result.stdout!r}') from error
+
+
 def connect_lte(host, port, interface, source=None):
     with socket.socket() as conn:
         if os.name == 'nt':
+            if source:
+                interface = windows_interface_index(source)
             conn.setsockopt(socket.IPPROTO_IP, 31, struct.pack('!I', int(interface)))
         else:
             result = subprocess.run(['ip', '-j', '-4', 'route', 'get', host, 'oif', interface],
@@ -306,7 +324,8 @@ class Receiver:
                 self.radio_samples[link] = (time.monotonic_ns(), reading)
 
     def lte(self):
-        with connect_lte(self.config['ecs'], self.config['lte_port'], self.config['lte_interface']) as conn:
+        with connect_lte(self.config['ecs'], self.config['lte_port'], self.config['lte_interface'],
+                         self.config.get('lte_ip')) as conn:
             print('4g: connected to ECS', flush=True)
             conn.settimeout(None)
             # Detect a lost modem or a stale relay session even when no run is active.
