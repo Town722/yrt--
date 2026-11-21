@@ -29,7 +29,7 @@ OUTCOME_COLORS = {
 SETTINGS = (
     ('serial', 'LoRa 串口'), ('wifi_ip', '电脑网桥 IP'), ('wifi_peer', 'RK3588 网桥 IP'),
     ('wifi_port', '网桥 UDP 端口'), ('ecs', 'ECS IPv4'), ('lte_port', 'ECS 数传端口'),
-    ('lte_interface', 'Windows 4G 接口索引'), ('lte_ip', 'Windows 4G 网卡 IP'),
+    ('lte_ip', 'Windows 4G 网卡 IP（用于自动识别接口）'),
     ('lte_at', 'EC200A AT 串口'),
 )
 
@@ -58,6 +58,7 @@ class Station:
         self.worker = None
         self.stop_signal = threading.Event()
         self.result = None
+        self.clock_sync = None
         self.live_run = ''
         self.live_feed = None
         self.live_rows = []
@@ -151,9 +152,9 @@ class Station:
         arrivals, replay = ttk.Frame(tabs, padding=6), ttk.Frame(tabs, padding=6)
         tabs.add(arrivals, text='接收明细')
         tabs.add(replay, text='回放')
-        ttk.Label(arrivals, text='无线分数按各链路自己的 RSSI 或 RSRP 计算。相对延迟单独记录。').pack(anchor='w', pady=(0, 5))
-        self.arrivals_table = self.table(arrivals, ('到达顺序', '指令序号', '链路', '指令值', '车端处理', '延迟差 ms', '无线测量', '质量 0–1'),
-                                         (78, 78, 99, 63, 81, 88, 128, 88), 5, scroll=True)
+        ttk.Label(arrivals, text='相对首达差由车端单调时钟计算；发送→接收差先经 SSH 校准两端单调时钟，不依赖系统日期。').pack(anchor='w', pady=(0, 5))
+        self.arrivals_table = self.table(arrivals, ('到达顺序', '指令序号', '链路', '指令值', '车端处理', '相对首达 ms', '发送提交→接收 ms', '无线测量', '质量 0–1'),
+                                         (78, 78, 99, 63, 81, 102, 112, 128, 88), 5, scroll=True)
         for outcome, (background, foreground) in OUTCOME_COLORS.items():
             self.arrivals_table.tag_configure(outcome, background=background, foreground=foreground)
         replay_scope = ttk.Frame(replay)
@@ -202,8 +203,15 @@ class Station:
 
     def update_routes(self):
         cfg = self.config
-        self.route_text.set(f"{cfg['serial']} · 9600    |    {cfg['wifi_peer']}:{cfg['wifi_port']} / UDP"
-                            f"    |    {cfg['ecs']}:{cfg['lte_port']} / TCP，接口 {cfg['lte_interface']}")
+        ports = fusion.list_ports.comports() if cfg.get('serial_auto', True) else ()
+        detected = []
+        for role in ('lora', '4g'):
+            try:
+                detected.append(fusion.windows_serial_port(cfg, role, ports))
+            except OSError:
+                detected.append('未识别')
+        self.route_text.set(f"LoRa {detected[0]} · 4G AT {detected[1]}    |    {cfg['wifi_peer']}:{cfg['wifi_port']} / UDP"
+                            f"    |    {cfg['ecs']}:{cfg['lte_port']} / TCP")
 
     def render_tx(self):
         counts = Counter()
@@ -247,6 +255,8 @@ class Station:
             self.fill(self.replay_table, [(scope, updates, f'{gap:.1f} ms', by_source or '—')])
 
     def render_arrivals(self, rows, source):
+        tx_path = self.tx_path()
+        tx_rows = list(fusion.read_log(tx_path)) if tx_path.is_file() else []
         latest = {}
         for row in rows:
             if row.get('radio'):
@@ -264,13 +274,29 @@ class Station:
             self.fill(self.arrivals_table, [])
             self.arrival_view = source
             self.arrival_count = 0
-        for row in fusion.arrival_details(rows):
+        for row in fusion.arrival_details(rows, tx_rows):
             order = row.get('rx_order', 0)
             if order > self.arrival_count:
                 raw, quality = self.signal_values(row.get('radio'))
                 outcome = row['outcome']
+                send_delay = row.get('send_to_receive_ms')
+                delay_state = row.get('send_time_status')
+                if delay_state == 'sync_uncertain':
+                    send_delay = f'~{send_delay:.1f}' if send_delay is not None else '校时精度低'
+                elif delay_state == 'sync_check':
+                    send_delay = '校准异常'
+                elif delay_state == 'board_rebooted':
+                    send_delay = '校时后板子重启'
+                elif delay_state == 'sync_failed':
+                    send_delay = '校时失败'
+                elif delay_state == 'missing_sync':
+                    send_delay = '历史记录无校时'
+                elif send_delay is not None:
+                    send_delay = f'{send_delay:.1f}'
+                else:
+                    send_delay = '—'
                 self.arrivals_table.insert('', 'end', values=(order, row['seq'], NAME[row['link']], row['value'],
-                    OUTCOME[outcome], f"{row['relative_delay_ms']:.1f}", raw, quality), tags=(outcome,))
+                    OUTCOME[outcome], f"{row['relative_delay_ms']:.1f}", send_delay, raw, quality), tags=(outcome,))
                 self.arrival_count = order
 
     @staticmethod
@@ -345,18 +371,23 @@ class Station:
             ttk.Label(dialog, text=label).grid(row=i, column=0, sticky='w', pady=3, padx=(0, 10))
             fields[key] = tk.StringVar(dialog, str(self.config[key]))
             ttk.Entry(dialog, textvariable=fields[key], width=24).grid(row=i, column=1, pady=3)
+        auto = tk.BooleanVar(dialog, value=self.config.get('serial_auto', True))
+        ttk.Checkbutton(dialog, text='自动识别 LoRa 和 4G 串口', variable=auto).grid(
+            row=len(fields), column=0, columnspan=2, sticky='w', pady=(6, 0))
 
         def save():
             updated = dict(self.config, **{key: value.get().strip() for key, value in fields.items()})
+            updated['serial_auto'] = auto.get()
             try:
                 for key in ('wifi_ip', 'wifi_peer', 'ecs', 'lte_ip'):
                     ipaddress.IPv4Address(updated[key])
-                for key in ('wifi_port', 'lte_port', 'lte_interface'):
+                for key in ('wifi_port', 'lte_port'):
                     updated[key] = int(updated[key])
                     if not 1 <= updated[key] <= 65535:
-                        raise ValueError('端口或接口索引超出范围。')
-                if not updated['serial'] or not updated['lte_at'] or updated['serial'].upper() == updated['lte_at'].upper():
-                    raise ValueError('请为 LoRa 和 EC200A 填入各自的串口。')
+                        raise ValueError('端口超出范围。')
+                if not auto.get():
+                    if not updated['serial'] or not updated['lte_at'] or updated['serial'].upper() == updated['lte_at'].upper():
+                        raise ValueError('请为 LoRa 和 EC200A 填入各自的串口。')
                 self.settings.write_text(json.dumps(updated, indent=2) + '\n', encoding='utf-8')
             except (OSError, ValueError) as error:
                 messagebox.showerror('保存设置失败', str(error), parent=dialog)
@@ -365,7 +396,7 @@ class Station:
             self.update_routes()
             dialog.destroy()
 
-        ttk.Button(dialog, text='保存', style='Primary.TButton', command=save).grid(row=len(fields), column=1, sticky='e', pady=(10, 0))
+        ttk.Button(dialog, text='保存', style='Primary.TButton', command=save).grid(row=len(fields) + 1, column=1, sticky='e', pady=(10, 0))
 
     def start_run(self):
         if self.worker is not None or self.dial_worker is not None:
@@ -381,6 +412,7 @@ class Station:
         if len(omitted) == len(fusion.LINKS):
             self.status.set('请至少选择一条链路。')
             return
+        self.update_routes()
         try:
             run = fusion.reserve_run(self.logs)
         except OSError as error:
@@ -391,11 +423,14 @@ class Station:
         self.selected.set(self.live_run)
         self.stop_signal.clear()
         self.result = None
+        self.clock_sync = None
         config = dict(self.config, logs=str(self.logs))
 
         def send():
             try:
-                fusion.transmit(config, hz, range(1, count + 1), omitted, run=run, stop=self.stop_signal)
+                self.clock_sync = fusion.synchronize_monotonic_clock(config)
+                fusion.transmit(config, hz, range(1, count + 1), omitted, run=run,
+                                stop=self.stop_signal, clock_sync=self.clock_sync)
                 # Let the LoRa radio deliver its queued end frame before offering the log fetch.
                 if 'lora' not in omitted:
                     time.sleep(2)
@@ -410,7 +445,7 @@ class Station:
         self.dial_button.configure(state='disabled')
         self.stop_button.configure(state='normal')
         self.fetch_button.configure(state='disabled')
-        self.status.set(f'正在发包 · {self.live_run}')
+        self.status.set(f'正在校准 RK3588 单调时钟并发包 · {self.live_run}')
         self.load_runs()
 
     def stop_run(self):
@@ -419,7 +454,12 @@ class Station:
         self.status.set('已停止生成新指令，正在保存本轮日志。')
 
     def dial_modem(self):
-        port = self.config['lte_at']
+        self.update_routes()
+        try:
+            port = fusion.windows_serial_port(self.config, '4g')
+        except OSError as error:
+            self.status.set(str(error))
+            return
 
         def dial():
             try:
@@ -528,7 +568,15 @@ class Station:
                 self.stop_button.configure(state='disabled')
                 if self.fetch is None:
                     self.fetch_button.configure(state='normal')
-                self.status.set(f'测试失败 · {self.result}' if self.result else f'本轮已保存 · {self.live_run}')
+                if self.result:
+                    message = f'测试失败 · {self.result}'
+                elif self.clock_sync and self.clock_sync.get('status') in ('ok', 'uncertain'):
+                    rtt_ms = self.clock_sync['rtt_ns'] / 1e6
+                    message = f'本轮已保存 · {self.live_run} · 单调时钟校准 RTT {rtt_ms:.1f} ms'
+                else:
+                    error = (self.clock_sync or {}).get('error', 'SSH 校准不可用')
+                    message = f'本轮已保存 · {self.live_run} · {error}'
+                self.status.set(message)
                 self.load_runs()
                 if self.fetch is None and not self.result:
                     self.fetch_log(automatic=True)
