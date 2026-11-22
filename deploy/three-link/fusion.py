@@ -580,10 +580,13 @@ def arrival_details(rows, tx_rows=()):
             else:
                 send_delay_ns = received_mono_ns - sent_mono_ns - offset_ns
                 send_delay_ms = send_delay_ns / 1e6
-                if sync_status == 'uncertain':
+                if send_delay_ns < 0:
+                    send_time_status = ('sync_negative_uncertain'
+                                        if -send_delay_ns <= (sync_rtt_ns or 0) else 'sync_check')
+                elif sync_status == 'uncertain':
                     send_time_status = 'sync_uncertain'
-                elif send_delay_ns < -(sync_rtt_ns or 0):
-                    send_time_status = 'sync_check'
+                elif send_delay_ns <= (sync_rtt_ns or 0) // 2:
+                    send_time_status = 'below_sync_resolution'
                 else:
                     send_time_status = 'ok'
         elif sync_status == 'failed':

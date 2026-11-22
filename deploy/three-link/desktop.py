@@ -152,7 +152,7 @@ class Station:
         arrivals, replay = ttk.Frame(tabs, padding=6), ttk.Frame(tabs, padding=6)
         tabs.add(arrivals, text='接收明细')
         tabs.add(replay, text='回放')
-        ttk.Label(arrivals, text='相对首达差由车端单调时钟计算；发送→接收差先经 SSH 校准两端单调时钟，不依赖系统日期。').pack(anchor='w', pady=(0, 5))
+        ttk.Label(arrivals, text='相对首达差由车端单调时钟计算；发送→接收差经 SSH 校准，不依赖系统日期。低于校时精度的估计不显示为有效时延，CSV 保留原始值。').pack(anchor='w', pady=(0, 5))
         self.arrivals_table = self.table(arrivals, ('到达顺序', '指令序号', '链路', '指令值', '车端处理', '相对首达 ms', '发送提交→接收 ms', '无线测量', '质量 0–1'),
                                          (78, 78, 99, 63, 81, 102, 112, 128, 88), 5, scroll=True)
         for outcome, (background, foreground) in OUTCOME_COLORS.items():
@@ -283,6 +283,10 @@ class Station:
                 delay_state = row.get('send_time_status')
                 if delay_state == 'sync_uncertain':
                     send_delay = f'~{send_delay:.1f}' if send_delay is not None else '校时精度低'
+                elif delay_state == 'sync_negative_uncertain':
+                    send_delay = '校时误差内'
+                elif delay_state == 'below_sync_resolution':
+                    send_delay = '低于校时精度'
                 elif delay_state == 'sync_check':
                     send_delay = '校准异常'
                 elif delay_state == 'board_rebooted':
