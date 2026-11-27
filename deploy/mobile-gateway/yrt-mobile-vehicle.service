@@ -1,0 +1,19 @@
+[Unit]
+Description=YRT mobile gateway vehicle data agent
+After=network-online.target yrt-fusion-rx.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ztl
+Environment=YRT_VEHICLE_CONFIG=/etc/yrt-mobile-gateway/vehicle.json
+ExecStart=/usr/bin/python3 /opt/yrt-mobile-gateway/vehicle_agent.py
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/var/lib/yrt-fusion/rx.jsonl
+
+[Install]
+WantedBy=multi-user.target

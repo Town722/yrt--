@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#12374b">
+  <title>YRT</title>
+  <style>
+    :root{color-scheme:light;--ink:#253b53;--muted:#6d7e8e;--line:#e5dccb;--paper:#f7f4ec;--card:#fffefa;--navy:#12374b;--blue:#7899d6;--gold:#d2b47c;--green:#397968;--red:#b45a53;--amber:#a77c40;--soft-green:#e9f2ec;--soft-blue:#edf1f8;--soft-gold:#f7f0e1;--shadow:0 5px 18px #253b530d}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.45 "Microsoft YaHei UI",system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+    button,input,select{font:inherit}
+    .app{max-width:520px;min-height:100dvh;margin:0 auto;padding-bottom:112px;background:var(--paper)}
+    header{background:var(--navy);color:#fff;padding:calc(12px + env(safe-area-inset-top)) 18px 13px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--gold)}
+    .brand-logo{display:block;width:148px;height:60px;object-fit:cover;object-position:center;border-radius:0;flex:none}
+    main{padding:12px 14px 20px;display:grid;gap:12px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:0;padding:15px;box-shadow:var(--shadow)}
+    .row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+    h2{font-size:16px;line-height:1.3;margin:0;font-weight:700}h3{font-size:14px;margin:0;font-weight:680}
+    .sub{color:var(--muted);font-size:13px}.small{font-size:12px;color:var(--muted)}
+    .pc{display:flex;align-items:center;gap:12px}.pc-icon{width:42px;height:42px;border-radius:0;background:var(--soft-blue);color:#587bb8;display:grid;place-items:center;font-size:21px}
+    .state{display:inline-flex;align-items:center;gap:6px;color:var(--green);font-size:13px;font-weight:650;white-space:nowrap}.state:before{content:"";width:8px;height:8px;background:currentColor;border-radius:50%}
+    .offline{color:var(--red)!important}
+    .runstate{padding:4px 9px;border-radius:0;background:var(--soft-green);color:var(--green);font-size:12px;font-weight:650}
+    .metrics{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.5fr);gap:8px;margin-top:14px}
+    .metric{background:var(--soft-blue);border-radius:0;padding:9px 10px;min-width:0}.metric span{display:block;color:var(--muted);font-size:12px}.metric b{display:block;margin-top:3px;font-size:18px;font-weight:650;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #runid{font-size:clamp(13px,3.65vw,16px);font-variant-numeric:tabular-nums;white-space:normal;overflow:visible;overflow-wrap:anywhere;text-overflow:clip}
+    .sectionhead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:11px}.pill{font-size:12px;color:#806b46;background:var(--soft-gold);border:1px solid #ecdfc5;border-radius:0;padding:4px 8px}
+    .health{display:flex;gap:8px;align-items:center}
+    .fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}.field label{display:block;color:var(--muted);font-size:13px;margin:0 0 5px}.field input,.field select{height:43px;width:100%;border:1px solid var(--line);border-radius:0;padding:0 10px;color:var(--ink);background:var(--card)}
+    .links{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.link{border:1px solid var(--line);border-radius:0;padding:10px 8px;min-width:0}.link strong{display:block;font-size:13px}.link .linkstatus{display:flex;align-items:center;gap:5px;margin-top:5px;color:var(--green);font-size:12px;white-space:nowrap}.link .linkstatus:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}.link small{display:block;font-size:11px;color:var(--muted);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .feedback{display:grid;gap:0}.feedbackrow{display:grid;grid-template-columns:48px 1fr auto;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--line)}.feedbackrow:first-child{border-top:0;padding-top:0}.seq{color:#65798d;font-size:12px;font-weight:600}.arrival{font-size:13px}.arrival small{display:block;margin-top:2px;color:var(--muted);font-size:12px}.badge{font-size:12px;font-weight:650;color:#587bb8;background:var(--soft-blue);border-radius:0;padding:4px 7px;white-space:nowrap}
+    .linkchecks{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.linkchecks label{display:flex;align-items:center;gap:5px;padding:7px 9px;border:1px solid var(--line);border-radius:0;color:var(--ink);font-size:13px}.linkchecks input{accent-color:var(--blue);margin:0}
+    .tools{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-top:12px}.tools button,.actions button{min-height:39px;border:1px solid var(--line);border-radius:0;background:var(--card);color:var(--ink);font-size:13px}
+    .actions{display:flex;gap:8px;margin-top:11px}.actions button{flex:1}
+    .empty{color:var(--muted);font-size:13px;padding:4px 0}
+    .history-controls,.history-summary{margin:12px 0}
+    .badge.adopted{color:var(--green);background:var(--soft-green)}.badge.duplicate{color:var(--amber);background:var(--soft-gold)}.badge.late{color:var(--red);background:#f6e9e6}
+    .bottom{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(100%,520px);padding:11px 14px calc(11px + env(safe-area-inset-bottom));background:#fffefaf2;backdrop-filter:blur(14px);border-top:1px solid var(--gold);display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .bottom button{height:54px;border:0;border-radius:0;color:#fff;font-weight:720;letter-spacing:.02em;cursor:pointer}.start{background:var(--blue)}.start:disabled{background:#aab8d1}.stop{background:var(--red)}.stop:disabled{background:#c6ced2;color:#fff}
+    .toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:#153b4b;color:#fff;border-radius:0;padding:9px 14px;font-size:13px;box-shadow:var(--shadow);z-index:5;display:none;max-width:90vw;text-align:center}
+    @media(max-width:360px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.metric:last-child{grid-column:1/-1}}
+    @media(min-width:600px){body{padding:24px 0}.app{min-height:calc(100dvh - 48px);border-radius:0;overflow:hidden;box-shadow:0 16px 55px #15374b24}.bottom{bottom:24px;border-radius:0}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <img class="brand-logo" src="brand-logo.png" alt="个人标志">
+    </header>
+    <main>
+      <section class="card" id="ground">
+        <div class="row">
+          <div class="pc"><span class="pc-icon" aria-hidden="true">▣</span><div><h2>电脑端发射站</h2><p class="sub" id="pc-detail">等待电脑地面站连接</p></div></div>
+          <span class="state offline" id="pc-state">离线</span>
+        </div>
+        <div class="metrics">
+          <div class="metric"><span>本轮指令</span><b id="sent">0 / 20</b></div>
+          <div class="metric"><span>运行时间</span><b id="elapsed">00:00</b></div>
+          <div class="metric"><span>实验编号</span><b id="runid">—</b></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="sectionhead"><h2>手机连接</h2><span class="small" id="connection-state">未连接</span></div>
+        <div class="fields">
+          <div class="field" style="grid-column:1/-1"><label for="phone-token">手机访问令牌</label><input id="phone-token" type="password" autocomplete="current-password" placeholder="输入部署时生成的手机令牌"></div>
+        </div>
+        <div class="actions"><button id="connect">连接电脑地面站</button></div>
+      </section>
+
+      <section class="card">
+        <div class="sectionhead"><h2>实验设置</h2><span class="pill" id="runstate">待命</span></div>
+        <div class="fields">
+          <div class="field"><label for="count">指令条数</label><input id="count" type="number" min="1" max="5000" value="20"></div>
+          <div class="field"><label for="hz">发送频率 Hz</label><input id="hz" type="number" min="0.1" max="10" step="0.1" inputmode="decimal" value="1"></div>
+          <div class="field"><label for="vehicle-mode">车载信息获取</label><select id="vehicle-mode"><option value="bridge">网桥实时传输</option><option value="lte">4G实验后回传</option></select></div>
+        </div>
+        <fieldset class="linkchecks" aria-label="本轮发射链路"><label><input data-link="lora" type="checkbox" checked>LoRa</label><label><input data-link="wifi" type="checkbox" checked>Wi-Fi 网桥</label><label><input data-link="4g" type="checkbox" checked>4G</label></fieldset>
+        <div class="tools"><button id="dial">4G 拨号</button><button id="fetch">取车端数据</button></div>
+      </section>
+
+      <section class="card">
+        <div class="sectionhead"><h2>电脑端链路状态</h2></div>
+        <div class="links">
+          <div class="link" data-link-card="lora"><strong>LoRa</strong><span class="linkstatus">等待电脑状态</span><small>—</small></div>
+          <div class="link" data-link-card="wifi"><strong>Wi-Fi 网桥</strong><span class="linkstatus">等待电脑状态</span><small>—</small></div>
+          <div class="link" data-link-card="4g"><strong>4G</strong><span class="linkstatus">等待电脑状态</span><small>—</small></div>
+        </div>
+      </section>
+
+      <section class="card" id="vehicle">
+        <div class="sectionhead"><h2>车载端数据</h2><div class="health"><span class="small" id="vehicle-state">4G取数代理未知</span><span class="small" id="feedback-time">等待数据</span></div></div>
+        <div class="sectionhead"><h3>接收明细</h3><span class="small">首达顺序 · 两种时差</span></div>
+        <div class="feedback" id="feedback">
+          <div class="feedbackrow"><span class="seq">#0</span><div class="arrival">等待车端接收记录<small>首达差、发送→接收时差将在这里显示</small></div><span class="badge">待命</span></div>
+        </div>
+        <div class="actions"><button id="refresh-vehicle">刷新车端数据</button></div>
+      </section>
+      <section class="card" id="history">
+        <div class="sectionhead"><h2>历史实验</h2><button id="reload-runs" type="button">刷新列表</button></div>
+        <div class="field"><label for="history-run">实验编号</label><select id="history-run"><option value="">选择实验</option></select></div>
+        <p class="small history-summary" id="history-summary" aria-live="polite"></p>
+        <div id="history-result" hidden>
+          <h3>回放统计</h3>
+          <fieldset class="linkchecks history-controls" aria-label="参与回放的链路">
+            <label><input type="checkbox" value="lora" checked>LoRa</label>
+            <label><input type="checkbox" value="wifi" checked>Wi-Fi 网桥</label>
+            <label><input type="checkbox" value="4g" checked>4G</label>
+          </fieldset>
+          <p class="small" id="history-replay"></p>
+          <div class="sectionhead"><h3>接收明细</h3><span class="small" id="history-page"></span></div>
+          <div class="feedback" id="history-rows"></div>
+          <div class="actions"><button id="history-prev">上一页</button><button id="history-next">下一页</button></div>
+        </div>
+      </section>
+    </main>
+    <div class="bottom">
+      <button class="start" id="start">开始实验</button>
+      <button class="stop" id="stop" disabled>停止实验</button>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </div>
+  <script>
+    (()=>{
+      const $=id=>document.getElementById(id);
+      const apiBase=document.querySelector('meta[name="yrt-api-base"]')?.content ||
+        (location.protocol==='https:' ? new URL('.',location.href).href.replace(/\/$/,'') : '');
+      const tokenKey='yrt-mobile-phone-token';
+      const tokenInput=$('phone-token');
+      try{tokenInput.value=localStorage.getItem(tokenKey)||''}catch{}
+      let token=tokenInput.value, lastRenderedRun='', lastLoadedRun='', lastLoadedRevision=-1, loadingRun='', lastStateData=null, controlsDirty=false, pendingStart=false;
+      const names={lora:'LoRa',wifi:'Wi-Fi 网桥','4g':'4G'};
+      const delayReasons={below_sync_resolution:'低于校时分辨率',sync_negative_uncertain:'在校时误差内',
+        sync_uncertain:'校时精度不足',sync_check:'校时待核查',sync_failed:'校时失败',
+        missing_sync:'缺少校时数据',missing_tx:'缺少发送记录',board_rebooted:'车端已重启'};
+      const PAGE_SIZE=100;
+      const archiveDateFormat=new Intl.DateTimeFormat('sv-SE',{
+        timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',
+        hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+      });
+      let historyRows=[], historyPage=0, historyRequest=0, listedToken='';
+      const toast=text=>{const t=$('toast');t.textContent=text;t.style.display='block';clearTimeout(t._timer);t._timer=setTimeout(()=>t.style.display='none',2800)};
+      async function request(path,method='GET',body=null){
+        if(!apiBase || !apiBase.startsWith('https://')) throw new Error('当前页面未部署到 HTTPS 控制网关');
+        const response=await fetch(apiBase+path,{method,headers:{'Authorization':'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,cache:'no-store'});
+        const data=await response.json().catch(()=>({}));
+        if(!response.ok) throw new Error(data.error||`HTTP ${response.status}`);
+        return data;
+      }
+      function fillRows(box,rows,emptyText='还没有车端接收记录'){
+        box.replaceChildren();
+        if(!rows.length){const empty=document.createElement('div');empty.className='empty';empty.textContent=emptyText;box.append(empty);return}
+        rows.forEach(row=>{
+          const line=document.createElement('div');line.className='feedbackrow';
+          const seq=document.createElement('span');seq.className='seq';
+          seq.textContent=commandRow(row)&&Number.isInteger(row.seq)?`#${row.seq}`:'—';
+          const detail=document.createElement('div');detail.className='arrival';detail.textContent=`指令 ${row.seq??'—'} · ${names[row.link]||row.link||'未知链路'}${Number.isFinite(row.value)?` · 值 ${row.value}`:''}`;
+          const sub=document.createElement('small');
+          const delays=[];
+          if(Number.isFinite(row.relative_delay_ms)) delays.push(`首达差 ${row.relative_delay_ms.toFixed(1)} ms`);
+          if(row.send_time_status==='ok'&&Number.isFinite(row.send_to_receive_ms)) delays.push(`发送→接收 ${row.send_to_receive_ms.toFixed(1)} ms`);
+          else if(commandRow(row)) delays.push(`发送→接收 ${delayReasons[row.send_time_status]||'待合并发送日志'}`);
+          sub.textContent=delays.join(' · ')||`车端处理：${row.outcome||'已记录'}`;detail.append(sub);
+          const badge=document.createElement('span');badge.className='badge';badge.classList.add(...(['adopted','duplicate','late'].includes(row.outcome)?[row.outcome]:[]));badge.textContent=({adopted:'采用',duplicate:'延迟',late:'晚到',start:'开始',end:'结束'})[row.outcome]||'车端记录';
+          line.append(seq,detail,badge);box.append(line);
+        });
+      }
+      function renderRows(rows){
+        fillRows($('feedback'),rows.slice(-100).reverse());
+        $('feedback-time').textContent='已接收 '+rows.length+' 条';
+      }
+      function renderPendingArchive(online){
+        fillRows($('feedback'),[],online?'车端日志已回传，等待电脑处理。':'车端日志已回传，等待电脑上线处理。');
+        $('feedback-time').textContent='待处理';
+      }
+      function commandRow(row){return ['adopted','duplicate','late'].includes(row.outcome)}
+      function rowTime(row){return row.rx_mono_ns??row.mono_ns}
+      function annotateRows(rows){
+        const first=new Map();let order=0;
+        return rows.map(row=>{
+          if(!commandRow(row))return row;
+          order++;
+          const time=rowTime(row), key=JSON.stringify([row.boot,row.seq]);
+          if(!Number.isFinite(time))return {...row,rx_order:order};
+          if(!first.has(key))first.set(key,time);
+          return {...row,rx_order:order,relative_delay_ms:row.relative_delay_ms??((time-first.get(key))/1e6)};
+        });
+      }
+      function renderHistoryPage(){
+        const commands=historyRows.filter(commandRow);
+        const pages=Math.max(1,Math.ceil(commands.length/PAGE_SIZE));
+        const start=historyPage*PAGE_SIZE;
+        fillRows($('history-rows'),commands.slice(start,start+PAGE_SIZE));
+        $('history-page').textContent=`${historyPage+1} / ${pages} 页`;
+        $('history-prev').disabled=historyPage===0;
+        $('history-next').disabled=historyPage+1>=pages;
+      }
+      function renderHistoryReplay(){
+        const included=new Set([...$('history-result').querySelectorAll('input:checked')].map(input=>input.value));
+        const clocks=historyRows.map(rowTime);
+        if(!clocks.length||!clocks.every(Number.isFinite)||new Set(historyRows.map(row=>row.boot)).size>1){
+          $('history-replay').textContent='车端时钟记录不足，无法计算最长更新空档。';return;
+        }
+        let first=clocks[0], last=first;
+        for(const clock of clocks){first=Math.min(first,clock);last=Math.max(last,clock)}
+        const sources={lora:0,wifi:0,'4g':0};
+        let top=0, previous=first, largestGap=0, updates=0;
+        for(const row of historyRows){
+          if(!commandRow(row)||!included.has(row.link)||row.seq<=top)continue;
+          const clock=rowTime(row);
+          largestGap=Math.max(largestGap,clock-previous);previous=clock;
+          top=row.seq;updates++;sources[row.link]++;
+        }
+        largestGap=Math.max(largestGap,last-previous);
+        const byLink=Object.keys(names).map(link=>`${names[link]} ${sources[link]}`).join(' · ');
+        $('history-replay').textContent=`有效更新 ${updates} · 最长更新空档 ${(largestGap/1e6).toFixed(1)} ms · 采用 ${byLink}`;
+      }
+      async function loadHistory(){
+        const run=$('history-run').value, requestId=++historyRequest;
+        $('history-result').hidden=true;
+        $('history-summary').textContent=run?'正在读取实验…':'';
+        if(!run)return;
+        try{
+          const result=await request('/api/v1/data?run='+encodeURIComponent(run));
+          if(requestId!==historyRequest)return;
+          historyRows=annotateRows(result.rows||[]);historyPage=0;
+          const counts={lora:0,wifi:0,'4g':0};
+          for(const row of historyRows)if(commandRow(row)&&Object.hasOwn(counts,row.link))counts[row.link]++;
+          const complete=historyRows.some(row=>row.outcome==='start')&&historyRows.some(row=>row.outcome==='end');
+          $('history-summary').textContent=Object.keys(names).map(link=>`${names[link]} ${counts[link]} 份`).join(' · ')+(complete?' · 起止帧齐全':' · 起止帧不全');
+          $('history-result').hidden=false;
+          renderHistoryPage();renderHistoryReplay();
+        }catch(error){if(requestId===historyRequest)$('history-summary').textContent='读取失败：'+error.message}
+      }
+      function archiveOption(item){
+        const dateId=/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(?:-(\d{2}))?$/.exec(item.run);
+        const count=` · ${item.records}条`;
+        if(dateId){
+          const [,year,month,day,hour,minute,round]=dateId;
+          const label=`${year}-${month}-${day} ${hour}:${minute}`;
+          const time=Date.parse(`${year}-${month}-${day}T${hour}:${minute}:00+08:00`);
+          return {...item,label:label+(round?` · 第${Number(round)}轮`:'')+count,time:time+Number(round||1)};
+        }
+        const shortId=item.run.slice(0,6).toUpperCase();
+        const started=Number.isFinite(item.started_utc_ms)?new Date(item.started_utc_ms):null;
+        if(started&&Number.isFinite(started.getTime())){
+          return {...item,label:`${archiveDateFormat.format(started)} · 旧 ${shortId}${count}`,time:started.getTime()};
+        }
+        return {...item,label:`旧实验 ${shortId} · 日期未知${count}`,time:-1};
+      }
+      async function reloadRuns(){
+        if(!token)return;
+        const requestedToken=token;
+        try{
+          const result=await request('/api/v1/runs');
+          if(requestedToken!==token)return;
+          const select=$('history-run'), selected=select.value;
+          const list=(result.runs||[]).map(archiveOption).sort((a,b)=>b.time-a.time||a.run.localeCompare(b.run));
+          select.replaceChildren(new Option(list.length?'选择实验':'暂无已归档实验',''));
+          list.forEach(item=>select.add(new Option(item.label,item.run)));
+          if(list.some(item=>item.run===selected)){select.value=selected}
+          else if(selected){loadHistory()}
+          listedToken=requestedToken;
+        }catch(error){toast('历史实验列表读取失败：'+error.message)}
+      }
+      function showConnection(text,online){$('connection-state').textContent=text;$('connection-state').className='small'+(online?'':' offline')}
+      function archiveRevision(state,run){return state?.archive_revisions?.[run]??0}
+      function loadBatch(run,force=false){
+        const revision=archiveRevision(lastStateData,run);
+        if(!run||run==='—'||loadingRun===run||(!force&&lastLoadedRun===run&&lastLoadedRevision===revision))return;
+        loadingRun=run;
+        request('/api/v1/data?run='+encodeURIComponent(run)).then(result=>{
+          if(result.complete&&$('runid').textContent===run){
+            lastLoadedRun=run;
+            lastLoadedRevision=result.revision??revision;
+            renderRows(annotateRows(result.rows||[]));
+          }
+        }).catch(error=>{toast('车端归档数据读取失败：'+error.message)}).finally(()=>{if(loadingRun===run)loadingRun=''})
+      }
+      function renderState(data){
+        const previousState=lastStateData;
+        lastStateData=data;
+        const pc=data.pc||{}, state=pc.state||{}, online=!!pc.online;
+        const vehicleOnline=!!data.vehicle?.online;
+        const uploadingRun=data.vehicle?.state?.uploading_run;
+        const vehicleAgent=data.vehicle?.state||{};
+        $('vehicle-state').textContent=vehicleOnline?(uploadingRun?`正在回传 ${uploadingRun}`:
+          vehicleAgent.last_error?`回传错误：${vehicleAgent.last_error}`:
+          vehicleAgent.last_upload?`已回传 ${vehicleAgent.last_upload.run}`:'4G取数代理在线'):'4G取数代理离线';
+        $('vehicle-state').className='small'+(vehicleOnline?'':' offline');
+        $('pc-state').textContent=online?'在线':'离线';$('pc-state').className='state'+(online?'':' offline');
+        $('pc-detail').textContent=online?(state.gateway_error?`网关通信异常：${state.gateway_error}`:(state.status||state.route||'电脑地面站已连接')):'等待电脑地面站连接';
+        showConnection(online?'电脑已连接':'等待电脑连接',online);
+        const savedRuns=data.runs||[];
+        const pendingRuns=data.pending_runs||[];
+        if(listedToken!==token||(previousState?.runs||[]).join(',')!==savedRuns.join(','))reloadRuns();
+        const historyRun=$('history-run').value;
+        if(historyRun&&archiveRevision(previousState,historyRun)!==archiveRevision(data,historyRun))loadHistory();
+        const currentRunIsKnown=savedRuns.includes(state.run_id)||pendingRuns.includes(state.run_id);
+        const id=online?(state.run_id||savedRuns[0]||'—'):
+          (currentRunIsKnown?state.run_id:(savedRuns[0]||state.run_id||'—'));
+        const awaitingProcessedRows=!state.running&&pendingRuns.includes(id)&&!savedRuns.includes(id);
+        if(!online){
+          $('runstate').textContent='电脑离线';$('runid').textContent=id;
+          $('sent').textContent=`— / ${state.count??$('count').value}`;$('elapsed').textContent='—';
+          $('start').disabled=true;$('stop').disabled=true;
+          if(id!==lastRenderedRun){lastRenderedRun=id;lastLoadedRun='';renderRows([])}
+          if(savedRuns.includes(id))loadBatch(id);
+          else if(awaitingProcessedRows)renderPendingArchive(false);
+          return;
+        }
+        $('runid').textContent=id;
+        if(id!==lastRenderedRun){lastRenderedRun=id;lastLoadedRun='';renderRows([])}
+        $('runstate').textContent=state.running?'运行中':(id==='—'?'待命':'已停止');
+        $('sent').textContent=`${state.sent??'—'} / ${state.count??$('count').value}`;
+        const seconds=Math.max(0,Number(state.elapsed_s)||0);$('elapsed').textContent=`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(Math.floor(seconds%60)).padStart(2,'0')}`;
+        if(state.running){pendingStart=false;controlsDirty=false}
+        if(!controlsDirty || state.running){
+          if(state.count) $('count').value=state.count;
+          if(state.hz) $('hz').value=state.hz;
+          if(state.vehicle_mode) $('vehicle-mode').value=state.vehicle_mode;
+        }
+        $('start').disabled=!!state.running;$('stop').disabled=!state.running;
+        $('start').textContent=state.running?'实验运行中':'开始实验';
+        Object.entries(state.links||{}).forEach(([key,value])=>{
+          const checkbox=document.querySelector(`.linkchecks input[data-link="${key}"]`);if(checkbox&&(!controlsDirty||state.running))checkbox.checked=!!value.enabled;
+          const card=document.querySelector(`[data-link-card="${key}"]`);if(!card)return;
+          const label=card.querySelector('.linkstatus');
+          label.textContent=value.failed?`提交失败 ${value.failed}`:(value.enabled?'已启用':'未选择');
+          label.className='linkstatus'+(value.failed?' offline':'');
+          card.querySelector('small').textContent=`提交 ${value.submitted||0} · 失败 ${value.failed||0}`;
+        });
+        if(!state.running&&savedRuns.includes(id)){
+          loadBatch(id);
+        }else if(awaitingProcessedRows){
+          renderPendingArchive(true);
+        }else{
+          const live=(data.live||[]).filter(row=>row.run===id);
+          if(live.length&&(state.vehicle_mode==='bridge'||live.some(row=>Number.isInteger(row.rx_order))))renderRows(live);
+        }
+      }
+      async function refresh(){
+        if(!token){showConnection('请填写手机访问令牌',false);return}
+        try{renderState(await request('/api/v1/state'));}
+        catch(error){showConnection(error.message,false);$('pc-state').textContent='离线';$('pc-state').className='state offline';}
+      }
+      $('connect').addEventListener('click',async()=>{
+        token=tokenInput.value.trim();if(!token){toast('请先输入手机访问令牌');return}
+        try{renderState(await request('/api/v1/state'));localStorage.setItem(tokenKey,token);toast('已连接控制网关')}
+        catch(error){showConnection(error.message,false);toast('连接失败：'+error.message)}
+      });
+      async function sendCommand(command){
+        try{await request('/api/v1/command','POST',command);toast('命令已交给电脑地面站');return true}
+        catch(error){toast('命令未发送：'+error.message);return false}
+      }
+      document.querySelectorAll('#count,#hz,#vehicle-mode,.linkchecks input[data-link]').forEach(input=>input.addEventListener('input',()=>controlsDirty=true));
+      document.querySelectorAll('#vehicle-mode,.linkchecks input[data-link]').forEach(input=>input.addEventListener('change',()=>controlsDirty=true));
+      $('start').addEventListener('click',()=>{
+        const count=Number($('count').value),hz=Number($('hz').value);
+        const links=[...document.querySelectorAll('.linkchecks input[data-link]:checked')].map(input=>input.dataset.link);
+        if(!Number.isInteger(count)||count<1||count>5000){toast('指令条数需为 1–5000');return}
+        if(!Number.isFinite(hz)||hz<0.1||hz>10){toast('发送频率需为 0.1–10 Hz');return}
+        if(!links.length){toast('请至少选择一条发送链路');return}
+        pendingStart=true;
+        sendCommand({command:'start',count,hz,links,vehicle_mode:$('vehicle-mode').value}).then(ok=>{if(!ok)pendingStart=false});
+      });
+      $('stop').addEventListener('click',()=>sendCommand({command:'stop'}));
+      $('dial').addEventListener('click',()=>sendCommand({command:'dial'}));
+      const fetchVehicle=()=>{
+        const run=$('runid').textContent;
+        if(!run||run==='—'){toast('当前没有可取回的实验编号');return}
+        if((lastStateData?.runs||[]).includes(run)){
+          lastLoadedRun='';loadBatch(run,true);toast('正在读取已归档的车端数据');return;
+        }
+        if(lastStateData?.pending_runs?.includes(run)&&!lastStateData.pc?.online){
+          toast('车端日志已回传，等待电脑上线处理。');return;
+        }
+        lastLoadedRun='';sendCommand({command:'fetch_vehicle',run});
+      };
+      $('fetch').addEventListener('click',fetchVehicle);$('refresh-vehicle').addEventListener('click',fetchVehicle);
+      $('reload-runs').addEventListener('click',()=>{reloadRuns();if($('history-run').value)loadHistory()});
+      $('history-run').addEventListener('change',loadHistory);
+      $('history-prev').addEventListener('click',()=>{historyPage--;renderHistoryPage()});
+      $('history-next').addEventListener('click',()=>{historyPage++;renderHistoryPage()});
+      $('history-result').querySelectorAll('input').forEach(input=>input.addEventListener('change',renderHistoryReplay));
+      refresh();setInterval(refresh,2000);
+    })();
+  </script>
+</body>
+</html>

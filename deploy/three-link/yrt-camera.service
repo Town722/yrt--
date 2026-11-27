@@ -1,0 +1,17 @@
+[Unit]
+Description=YRT on-demand vehicle camera over LTE
+After=network-online.target yrt-mobile-vehicle.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ztl
+SupplementaryGroups=video
+ExecStart=/usr/bin/python3 /home/ztl/.local/lib/yrt-camera/vehicle_camera.py lte
+Environment=PYTHONDONTWRITEBYTECODE=1
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -2,15 +2,18 @@
 
 > 本文保留早期方案与采购讨论；项目已开展硬件实测并采购四轮底盘，最新进度以以下记录为准。
 
-## 最新进度与资料索引（2026-11-20）
+## 最新进度与资料索引（2026-11-27）
+
+- [三链路与图传复盘](docs/2026-11-27-三链路与图传复盘.md)记录各次故障、定位过程、修正和验收范围。逐帧实验统计见 [LoRa 对照数据](docs/2026-11-27-LoRa对照数据.md)。
+- RK3588 已接入 Astra Pro 摄像头。Windows v28 支持选择网桥 MJPEG 或车端 4G H.264 图传，已收到 720p 公网实机画面。搭建和构建见[地面站说明](deploy/three-link/README.md#车载图传)。
 
 - 第一阶段采用 [三链路并发数传基线](docs/three-link-baseline.md)。Windows 在 LoRa、Wi-Fi 网桥和 4G 上发送同一编号的模拟指令，RK3588 按递增序号更新状态并记录全部到达副本。底盘由原装遥控器独立驾驶。
-- [Windows 三链路地面站](deploy/three-link/README.md)提供原生 EXE，支持 4G 拨号、三路真机发包、取回 RK3588 日志、回放和 CSV 导出。另有[地面站模拟预览](ground-station/index.html)。
+- [Windows 三链路地面站](deploy/three-link/README.md)提供原生 EXE，支持 4G 拨号、三路真机发包、取回 RK3588 日志、回放和 CSV 导出；[手机控制页](ground-station/mobile-control-preview.html)配套独立 HTTPS 网关，部署方式见 `deploy/mobile-gateway/README.md`。另有[链路算法模拟预览](ground-station/index.html)。
 - 已采购 WHEELTEC 四轮底盘，正在分析 [RK3588 底盘控制及厂家资料](docs/wheeltec-r680-rk3588-control-2026-11-16.md)；实物型号、接口、固件和停车行为尚待核实。
 - RK3588 Ubuntu 与 Windows 已完成 [LoRa 双向短消息测试](docs/lora-usb-first-test.md)；[Wi-Fi 网桥](docs/wifi-bridge-first-test.md)已完成静态互通测试。
 - 已验证 [RK3588 开机经网桥直连](docs/wifi-bridge-first-test.md#rk3588-开机直连2026-11-20)。Windows 可在网桥配对后直接 SSH 到 `192.168.137.246`。
 - 已记录 [4G 与 LoRa 共存实测](docs/coexistence-2026-11-06/README.md)和[链路选择评审](docs/coexistence-2026-11-06/link-selection.md)；测试结论有场景和样本量限制。
-- [ECS 数传中转](deploy/ecs-relay/README.md)已通过室内数据收发验证。第一阶段优先完成无图像并发数传实验，摄像头暂不采购。
+- [ECS 数传中转](deploy/ecs-relay/README.md)已通过室内数据收发验证；手机控制和 4G 图传使用独立的 [HTTPS 网关](deploy/mobile-gateway/README.md)。
 - 以下早期讨论中“尚未定案”或“尚未实测”的描述可能已经过时，具体状态请以上述较新文档为准。
 
 ## 项目目标和边界

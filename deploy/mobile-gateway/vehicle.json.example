@@ -1,0 +1,5 @@
+{
+  "url": "https://YOUR-WEBSITE-DOMAIN",
+  "token": "PASTE_YRT_TOKEN_VEHICLE_HERE",
+  "log": "/var/lib/yrt-fusion/rx.jsonl"
+}

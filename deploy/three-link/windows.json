@@ -9,5 +9,8 @@
   "lte_interface": 65,
   "lte_ip": "192.168.43.100",
   "lte_at": "COM7",
+  "gateway_url": "",
+  "gateway_token": "",
+  "vehicle_mode": "bridge",
   "logs": "logs"
 }

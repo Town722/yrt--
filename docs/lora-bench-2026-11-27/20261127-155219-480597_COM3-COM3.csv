@@ -1,0 +1,5 @@
+﻿tx_port,rx_port,baud,hz,frame_bytes,seq,write_error,write_to_first_ms,write_to_frame_ms,first_to_frame_ms,write_call_ms,sent_monotonic_ns
+COM3,COM3,9600,2,20,1,,22.4344,22.6224,0.188,0.1033,10817616075100
+COM3,COM3,9600,2,20,2,,22.367,22.6665,0.2995,0.1602,10818184830700
+COM3,COM3,9600,2,20,3,,22.3714,22.5512,0.1798,0.2073,10818723630900
+COM3,COM3,9600,2,20,4,,22.3269,22.6896,0.3627,0.1147,10819268117500

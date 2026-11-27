@@ -1,0 +1,21 @@
+[Unit]
+Description=YRT authenticated mobile control gateway
+After=network.target nginx.service
+
+[Service]
+Type=simple
+User=yrt-mobile-gateway
+Group=yrt-mobile-gateway
+StateDirectory=yrt-mobile-gateway
+EnvironmentFile=/etc/yrt-mobile-gateway/server.env
+ExecStart=/usr/bin/python3 /opt/yrt-mobile-gateway/gateway.py
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/yrt-mobile-gateway
+
+[Install]
+WantedBy=multi-user.target
