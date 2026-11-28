@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from h264_gateway import PREFIX as H264_PREFIX, handle_h264
+from control_gateway import PREFIX as CONTROL_PREFIX, handle_control
 
 
 HOST = os.environ.get('YRT_GATEWAY_BIND', '127.0.0.1')
@@ -121,7 +122,7 @@ class Handler(BaseHTTPRequestHandler):
         print('%s %s' % (self.log_date_time_string(), fmt % args), flush=True)
 
     def log_request(self, code='-', size='-'):
-        if not self.path.startswith('/api/v1/video/') or str(code) not in ('200', '204'):
+        if not self.path.startswith(('/api/v1/video/', CONTROL_PREFIX)) or str(code) not in ('200', '204'):
             super().log_request(code, size)
 
     def send_video(self, code, frame=None):
@@ -283,6 +284,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         route = urlparse(self.path)
+        if route.path.startswith(CONTROL_PREFIX):
+            return handle_control(self, route, authorized)
         if route.path.startswith(H264_PREFIX):
             return handle_h264(self, route, authorized, 'POST')
         if route.path.startswith('/api/v1/video/'):

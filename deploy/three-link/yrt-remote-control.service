@@ -1,0 +1,14 @@
+[Unit]
+Description=YRT USB chassis control receiver
+After=network.target usbdevice.service
+ConditionPathExists=/sys/class/udc/fc000000.usb
+
+[Service]
+Type=simple
+User=root
+Group=ztl
+RuntimeDirectory=yrt-remote-control
+RuntimeDirectoryMode=0750
+ExecStart=/usr/bin/python3 /opt/yrt-remote-control/control_receiver.py serve
+TimeoutStopSec=5s
+Restart=no

@@ -1,0 +1,3 @@
+e585044c3a8a829bc9649e7c2f136b559f2c22531b46c96c0c535ad48aadeb42  YRT-Remote-Control-Gateway-v2.tar.gz
+98746a739ed00bbe9eeb5295be72ffc25da5cd3cfdf0ffe2cd5c374584ae8fdc  YRT-RK3588-Remote-Control.tar.gz
+11b1e073c3eff1dced50354c19b50865689571e0945d64c14d799f376404c3d6  YRT-ThreeLink-Station-v30.exe

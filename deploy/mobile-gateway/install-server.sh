@@ -8,6 +8,7 @@ if ! id yrt-mobile-gateway >/dev/null 2>&1; then
 fi
 install -m 0644 "$HERE/gateway.py" /opt/yrt-mobile-gateway/gateway.py
 install -m 0644 "$HERE/h264_gateway.py" "$HERE/../three-link/video_transport.py" /opt/yrt-mobile-gateway/
+install -m 0644 "$HERE/control_gateway.py" "$HERE/../three-link/control_protocol.py" /opt/yrt-mobile-gateway/
 install -m 0644 "$HERE/yrt-mobile-gateway.service" /etc/systemd/system/yrt-mobile-gateway.service
 install -m 0644 "$HERE/../../ground-station/mobile-control-preview.html" /var/www/yrt-mobile/index.html
 install -m 0644 "$HERE/../../ground-station/brand-logo.png" /var/www/yrt-mobile/brand-logo.png

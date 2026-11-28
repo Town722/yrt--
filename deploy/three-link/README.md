@@ -41,6 +41,12 @@ Windows 主动发送模拟指令，RK3588 监听并记日志。车轮和转向�
 
 4G 使用持续 HTTPS 上传和接收。ECS 保留短时帧队列，落后过多时从新的关键帧继续。窗口断流时标明等待新画面。配置和现场验收见[复盘](../../docs/2026-11-27-三链路与图传复盘.md)。
 
+### 图传窗口的遥控
+
+原装接收器接 Windows，摄像头接 3588 的固定 USB Host，底盘 USB 接 3588 已切到设备模式的 OTG 口。底盘继续使用原有固件和参数。打开「图传」，选择「Wi-Fi 网桥」或「4G 低延迟」，开始预览，出画面后点击「开始遥控」。摇杆和扳机回中后按原装 Start/Menu 解锁。正式遥控转发原始摇杆和扳机值。停止遥控、关闭窗口、切换链路或丢失画面后需要重新启动并解锁。
+
+安装板端服务使用 `sudo sh deploy/three-link/install-control.sh`，要求 OTG 已处于设备模式。服务默认不随系统启动。重启 3588 前拔掉底盘 USB 线，启动后确认 OTG 不再对外供电再接回。4G 还需要在 ECS 上运行 `sudo python3 deploy/mobile-gateway/install-control.py`，沿用现有 HTTPS 网关和电脑、车端的各自令牌。网桥控制通过现有 SSH 验证。车端独立执行回中，网桥输入超过 200 ms、4G 帧对应的车端挑战超过 450 ms 后失效。
+
 RK3588 安装摄像头服务前，先按[网关部署](../mobile-gateway/README.md)安装车端代理。板端需要 USB 摄像头、`v4l2-ctl`、可用的 GStreamer/GI 和 Rockchip `mpph264enc` 插件。本项目板端用户为 `ztl`，应可以打开摄像头。程序优先通过 `/dev/v4l/by-id/*-video-index0` 找 Astra Pro；其他机器可通过环境变量 `YRT_CAMERA_DEVICE` 指定设备路径。
 
 ```sh
